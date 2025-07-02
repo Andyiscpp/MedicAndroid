@@ -1,0 +1,79 @@
+name: demo_conut
+description: "A new Flutter project with BilBil."
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.3.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  #核心功能包
+  oktoast: ^3.4.0
+  flutter_screenutil: ^5.9.0
+  flutter_swiper_view: ^1.1.8
+  cupertino_icons: ^1.0.8
+  shared_preferences: ^2.2.2
+  flutter_svg: ^2.0.10+1
+
+  # 数据库持久化
+  floor: ^1.4.2
+  sqflite: ^2.3.3
+
+  #地图组件
+  #amap_flutter_location: ^3.0.0
+  #amap_flutter_map: ^3.0.0
+  #amap_flutter_base: ^3.0.0
+  #permission_handler: ^10.2.0 # 权限处理，强烈建议保留
+  #xbr_gaode_amap: ^6.0.1
+  #permission_handler: ^11.3.1
+  syncfusion_flutter_maps: ^30.1.37
+  #上传时
+  image_picker: ^1.0.7
+  intl: ^0.19.0
+
+  path_provider: ^2.1.3
+  path: ^1.9.0 # 用于优雅地拼接路径
+
+  #OSS上传插件
+  flutter_oss_aliyun: ^6.4.2 # ✅ 使用您指定的这个依赖
+  http: ^1.2.1
+  dio: ^5.4.3+1
+
+  # 新增：用于获取地理位置
+  geolocator: ^12.0.0
+  geocoding: ^3.0.0   # 解析省市
+  # 新增：用于处理权限请求
+  permission_handler: ^11.3.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+
+  flutter_launcher_icons: ^0.13.1
+  # 修复：将 flutter_lints 更新到 3.0.2 或更高
+  flutter_lints: ^3.0.2
+
+  # 修复：将 floor_generator 和 build_runner 更新到更新、更兼容的版本
+  floor_generator: ^1.5.0
+  build_runner: ^2.4.11
+
+# 修复：移除所有 dependency_overrides
+# dependency_overrides:
+#   analyzer: '6.4.1'
+#   ...
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/medic_picture/
+
+flutter_launcher_icons:
+  android: true
+  image_path: "assets/launcher/icon.png"
+  adaptive_icon_foreground: "assets/launcher/icon.png"
+  adaptive_icon_background: "assets/launcher/icon.png"
+  ios: true
+  remove_alpha_ios: true
