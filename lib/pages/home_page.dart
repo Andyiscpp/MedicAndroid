@@ -150,7 +150,8 @@ class _HomePageState extends State<HomePage> {
   }
 
   void _loadCurrentUser() async {
-    final user = await _userService.getLoggedInUser();
+    // 调用 fetchAndSaveUserProfile 来确保获取到包括 avatarUrl 在内的最新信息
+    final user = await _userService.fetchAndSaveUserProfile();
     if (mounted) {
       setState(() {
         _currentUser = user;
@@ -217,16 +218,22 @@ class _HomePageState extends State<HomePage> {
               child: CircleAvatar(
                 radius: 18.r,
                 backgroundColor: AppColors.primaryLight,
-                child: _currentUser != null
-                    ? Text(
-                  _currentUser!.userName.isNotEmpty ? _currentUser!.userName.substring(0, 1).toUpperCase() : '?',
+                // 【关键修复】如果存在avatarUrl，则加载网络图片，否则显示首字母
+                backgroundImage: (_currentUser?.avatarUrl != null && _currentUser!.avatarUrl!.isNotEmpty)
+                    ? NetworkImage(_currentUser!.avatarUrl!)
+                    : null,
+
+                child: (_currentUser == null || (_currentUser!.avatarUrl != null && _currentUser!.avatarUrl!.isNotEmpty))
+                    ? null // 如果正在加载或已有头像，则不显示文字
+                    : Text( // 只有在加载完成且没有头像时，才显示首字母
+                  _currentUser!.username.isNotEmpty ? _currentUser!.username[0].toUpperCase() : '?',
                   style: const TextStyle(color: AppColors.primary, fontWeight: FontWeight.bold),
-                )
-                    : const SizedBox(
+                ),
+                 /*   : const SizedBox(
                   width: 18,
                   height: 18,
                   child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.primary),
-                ),
+                ),*/
               ),
             ),
           ),

@@ -1,60 +1,103 @@
 // lib/data/models/user.dart
 
-import 'package:floor/floor.dart';
-
-@Entity(tableName: 'users')
+// 最终版用户模型，与后端数据库结构完全对应
 class User {
-  @PrimaryKey(autoGenerate: true)
-  final int? id;
+  // --- From `users` table ---
+  final int id;
+  final String username;
+  final String? passwordHash; // 仅在本地使用，服务器不会返回
+  final int? role;
+  final int? status;
+  final String? createdAt;
 
-  @ColumnInfo(name: 'user_name')
-  final String userName;
+  // --- From `user_profiles` table ---
+  final String? nickname;
+  final String? avatarUrl;
+  final String? gender;
+  final String? bio;
 
-  @ColumnInfo(name: 'password_hash')
-  final String passwordHash;
+  // --- App-specific field (not from server) ---
+  final String? email;
 
-  @ColumnInfo(name: 'real_name')
-  final String realName;
-
-  // Floor会自动将字段名 'email' 转换为数据库列名 'email'
-  final String email;
-
-  // 同样，'location' 会被自动映射
-  final String? location;
-
-  // 这是Floor使用的构造函数
   User({
-    this.id,
-    required this.userName,
-    required this.passwordHash,
-    required this.realName,
-    required this.email,
-    this.location,
+    required this.id,
+    required this.username,
+    this.passwordHash,
+    this.role,
+    this.status,
+    this.createdAt,
+    this.nickname,
+    this.avatarUrl,
+    this.gender,
+    this.bio,
+    this.email,
   });
 
-  // A factory constructor to create a User from a map (e.g., when reading from the database).
-  //  用于将从数据库或JSON读取的Map转换为User对象的工厂构造函数
-  factory User.fromMap(Map<String, dynamic> map) {
+  /// 一个方便的 getter，用于在UI中显示用户的最佳名称。
+  /// 优先显示昵称，如果昵称为空，则回退到用户名。
+  String get displayName => (nickname != null && nickname!.isNotEmpty) ? nickname! : username;
+
+  /// 用于轻松创建用户对象修改后副本的方法。
+  User copyWith({
+    int? id,
+    String? username,
+    String? passwordHash,
+    int? role,
+    int? status,
+    String? createdAt,
+    String? nickname,
+    String? avatarUrl,
+    String? gender,
+    String? bio,
+    String? email,
+  }) {
     return User(
-      id: map['id'],
-      userName: map['user_name'],
-      passwordHash: map['password_hash'],
-      realName: map['real_name'],
-      email: map['email'],
-      location: map['location'],
+      id: id ?? this.id,
+      username: username ?? this.username,
+      passwordHash: passwordHash ?? this.passwordHash,
+      role: role ?? this.role,
+      status: status ?? this.status,
+      createdAt: createdAt ?? this.createdAt,
+      nickname: nickname ?? this.nickname,
+      avatarUrl: avatarUrl ?? this.avatarUrl,
+      gender: gender ?? this.gender,
+      bio: bio ?? this.bio,
+      email: email ?? this.email,
     );
   }
 
-  // A method to convert a User instance into a map (e.g., when writing to the database).
-  // 用于将User对象转换为Map以便存入数据库或转为JSON的方法
+  /// 从Map（例如来自服务器的JSON）创建User对象的工厂构造函数。
+  /// 这个构造函数非常健壮，能优雅地处理缺失字段。
+  factory User.fromMap(Map<String, dynamic> map) {
+    return User(
+      id: (map['id'] as num?)?.toInt() ?? 0,
+      username: map['username'] ?? '',
+      passwordHash: map['passwordHash'], // 服务器不发送此字段
+      role: (map['role'] as num?)?.toInt(),
+      status: (map['status'] as num?)?.toInt(),
+      createdAt: map['createdAt'],
+      nickname: map['nickname'],
+      avatarUrl: map['avatarUrl'],
+      gender: map['gender'],
+      bio: map['bio'],
+      email: map['email'], // 服务器不发送此字段
+    );
+  }
+
+  /// 将User实例转换为Map的方法（例如，用于保存到本地存储）。
   Map<String, dynamic> toMap() {
     return {
       'id': id,
-      'user_name': userName,
-      'password_hash': passwordHash,
-      'real_name': realName,
+      'username': username,
+      'passwordHash': passwordHash,
+      'role': role,
+      'status': status,
+      'createdAt': createdAt,
+      'nickname': nickname,
+      'avatarUrl': avatarUrl,
+      'gender': gender,
+      'bio': bio,
       'email': email,
-      'location': location,
     };
   }
 }

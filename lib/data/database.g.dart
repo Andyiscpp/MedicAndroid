@@ -96,7 +96,7 @@ class _$AppDatabase extends AppDatabase {
       },
       onCreate: (database, version) async {
         await database.execute(
-            'CREATE TABLE IF NOT EXISTS `users` (`id` INTEGER PRIMARY KEY AUTOINCREMENT, `user_name` TEXT NOT NULL, `password_hash` TEXT NOT NULL, `real_name` TEXT NOT NULL, `email` TEXT NOT NULL, `location` TEXT)');
+            'CREATE TABLE IF NOT EXISTS `users` (`id` INTEGER PRIMARY KEY AUTOINCREMENT, `user_name` TEXT NOT NULL, `password_hash` TEXT NOT NULL, `nickname` TEXT NOT NULL, `email` TEXT NOT NULL, `bio` TEXT, `avatar_url` TEXT, `role` INTEGER)');
 
         await callback?.onCreate?.call(database, version);
       },
@@ -115,40 +115,46 @@ class _$UserDao extends UserDao {
     this.database,
     this.changeListener,
   )   : _queryAdapter = QueryAdapter(database),
-        _userInsertionAdapter = InsertionAdapter(
+        _userEntityInsertionAdapter = InsertionAdapter(
             database,
             'users',
-            (User item) => <String, Object?>{
+            (UserEntity item) => <String, Object?>{
                   'id': item.id,
-                  'user_name': item.userName,
+                  'user_name': item.username,
                   'password_hash': item.passwordHash,
-                  'real_name': item.realName,
+                  'nickname': item.nickname,
                   'email': item.email,
-                  'location': item.location
+                  'bio': item.bio,
+                  'avatar_url': item.avatarUrl,
+                  'role': item.role
                 }),
-        _userUpdateAdapter = UpdateAdapter(
+        _userEntityUpdateAdapter = UpdateAdapter(
             database,
             'users',
             ['id'],
-            (User item) => <String, Object?>{
+            (UserEntity item) => <String, Object?>{
                   'id': item.id,
-                  'user_name': item.userName,
+                  'user_name': item.username,
                   'password_hash': item.passwordHash,
-                  'real_name': item.realName,
+                  'nickname': item.nickname,
                   'email': item.email,
-                  'location': item.location
+                  'bio': item.bio,
+                  'avatar_url': item.avatarUrl,
+                  'role': item.role
                 }),
-        _userDeletionAdapter = DeletionAdapter(
+        _userEntityDeletionAdapter = DeletionAdapter(
             database,
             'users',
             ['id'],
-            (User item) => <String, Object?>{
+            (UserEntity item) => <String, Object?>{
                   'id': item.id,
-                  'user_name': item.userName,
+                  'user_name': item.username,
                   'password_hash': item.passwordHash,
-                  'real_name': item.realName,
+                  'nickname': item.nickname,
                   'email': item.email,
-                  'location': item.location
+                  'bio': item.bio,
+                  'avatar_url': item.avatarUrl,
+                  'role': item.role
                 });
 
   final sqflite.DatabaseExecutor database;
@@ -157,63 +163,69 @@ class _$UserDao extends UserDao {
 
   final QueryAdapter _queryAdapter;
 
-  final InsertionAdapter<User> _userInsertionAdapter;
+  final InsertionAdapter<UserEntity> _userEntityInsertionAdapter;
 
-  final UpdateAdapter<User> _userUpdateAdapter;
+  final UpdateAdapter<UserEntity> _userEntityUpdateAdapter;
 
-  final DeletionAdapter<User> _userDeletionAdapter;
+  final DeletionAdapter<UserEntity> _userEntityDeletionAdapter;
 
   @override
-  Future<User?> findUserByUsername(String userName) async {
-    return _queryAdapter.query('SELECT * FROM users WHERE userName = ?1',
-        mapper: (Map<String, Object?> row) => User(
+  Future<UserEntity?> findUserByUsername(String username) async {
+    return _queryAdapter.query('SELECT * FROM users WHERE username = ?1',
+        mapper: (Map<String, Object?> row) => UserEntity(
             id: row['id'] as int?,
-            userName: row['user_name'] as String,
+            username: row['user_name'] as String,
             passwordHash: row['password_hash'] as String,
-            realName: row['real_name'] as String,
+            nickname: row['nickname'] as String,
             email: row['email'] as String,
-            location: row['location'] as String?),
-        arguments: [userName]);
+            bio: row['bio'] as String?,
+            avatarUrl: row['avatar_url'] as String?,
+            role: row['role'] as int?),
+        arguments: [username]);
   }
 
   @override
-  Future<User?> findUserByEmail(String email) async {
+  Future<UserEntity?> findUserByEmail(String email) async {
     return _queryAdapter.query('SELECT * FROM users WHERE email = ?1',
-        mapper: (Map<String, Object?> row) => User(
+        mapper: (Map<String, Object?> row) => UserEntity(
             id: row['id'] as int?,
-            userName: row['user_name'] as String,
+            username: row['user_name'] as String,
             passwordHash: row['password_hash'] as String,
-            realName: row['real_name'] as String,
+            nickname: row['nickname'] as String,
             email: row['email'] as String,
-            location: row['location'] as String?),
+            bio: row['bio'] as String?,
+            avatarUrl: row['avatar_url'] as String?,
+            role: row['role'] as int?),
         arguments: [email]);
   }
 
   @override
-  Future<User?> findUserById(int id) async {
+  Future<UserEntity?> findUserById(int id) async {
     return _queryAdapter.query('SELECT * FROM users WHERE id = ?1',
-        mapper: (Map<String, Object?> row) => User(
+        mapper: (Map<String, Object?> row) => UserEntity(
             id: row['id'] as int?,
-            userName: row['user_name'] as String,
+            username: row['user_name'] as String,
             passwordHash: row['password_hash'] as String,
-            realName: row['real_name'] as String,
+            nickname: row['nickname'] as String,
             email: row['email'] as String,
-            location: row['location'] as String?),
+            bio: row['bio'] as String?,
+            avatarUrl: row['avatar_url'] as String?,
+            role: row['role'] as int?),
         arguments: [id]);
   }
 
   @override
-  Future<void> insertUser(User user) async {
-    await _userInsertionAdapter.insert(user, OnConflictStrategy.abort);
+  Future<void> insertUser(UserEntity user) async {
+    await _userEntityInsertionAdapter.insert(user, OnConflictStrategy.abort);
   }
 
   @override
-  Future<void> updateUser(User user) async {
-    await _userUpdateAdapter.update(user, OnConflictStrategy.abort);
+  Future<void> updateUser(UserEntity user) async {
+    await _userEntityUpdateAdapter.update(user, OnConflictStrategy.abort);
   }
 
   @override
-  Future<void> deleteUser(User user) async {
-    await _userDeletionAdapter.delete(user);
+  Future<void> deleteUser(UserEntity user) async {
+    await _userEntityDeletionAdapter.delete(user);
   }
 }

@@ -1,12 +1,16 @@
+// lib/pages/account_security_page.dart
+
 import 'package:demo_conut/data/models/user.dart';
+import 'package:demo_conut/pages/login_page.dart';
 import 'package:demo_conut/services/user_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:oktoast/oktoast.dart';
-import 'home_page.dart'; // 导入以使用 AppColors
+import 'home_page.dart';
 
 class AccountSecurityPage extends StatefulWidget {
-  const AccountSecurityPage({super.key});
+  final User user;
+  const AccountSecurityPage({super.key, required this.user});
 
   @override
   _AccountSecurityPageState createState() => _AccountSecurityPageState();
@@ -23,23 +27,7 @@ class _AccountSecurityPageState extends State<AccountSecurityPage> {
   bool _isOldPasswordVisible = false;
   bool _isNewPasswordVisible = false;
   bool _isConfirmPasswordVisible = false;
-
-  User? _currentUser;
-
-  @override
-  void initState() {
-    super.initState();
-    _loadUser();
-  }
-
-  Future<void> _loadUser() async {
-    final user = await _userService.getLoggedInUser();
-    if (mounted) {
-      setState(() {
-        _currentUser = user;
-      });
-    }
-  }
+  bool _isSaving = false;
 
   @override
   void dispose() {
@@ -49,43 +37,36 @@ class _AccountSecurityPageState extends State<AccountSecurityPage> {
     super.dispose();
   }
 
+  /// 【关键修复】调用新的 changePassword 服务
   void _changePassword() async {
-    // 首先，确保用户信息已加载
-    if (_currentUser == null) {
-      showToast('无法获取用户信息，请稍后重试');
-      return;
-    }
+    if (!_formKey.currentState!.validate() || _isSaving) return;
 
-    if (_formKey.currentState!.validate()) {
-      // 验证原密码是否正确
-      if (_oldPasswordController.text != _currentUser!.passwordHash) {
-        showToast('原密码不正确');
-        return;
-      }
+    setState(() => _isSaving = true);
 
-      // 更新用户密码
-      final updatedUser = User(
-        id: _currentUser!.id,
-        userName: _currentUser!.userName, // ✅ 用户名保持不变
-        passwordHash: _newPasswordController.text, // 使用新密码
-        realName: _currentUser!.realName,
-        email: _currentUser!.email,
-        location: _currentUser!.location,
-      );
+    final result = await _userService.changePassword(
+      oldPassword: _oldPasswordController.text,
+      newPassword: _newPasswordController.text,
+      rePassword: _confirmPasswordController.text,
+    );
 
-      final success = await _userService.updateUser(updatedUser);
+    if (mounted) {
+      setState(() => _isSaving = false);
+      showToast(result['message']); // 显示后端返回的提示信息
 
-      if (mounted) {
-        if (success) {
-          showToast('密码修改成功！');
-          // 成功后清空输入框并返回
-          _oldPasswordController.clear();
-          _newPasswordController.clear();
-          _confirmPasswordController.clear();
-          Navigator.of(context).pop();
-        } else {
-          showToast('密码更新失败，请稍后重试');
-        }
+      if (result['success'] == true) { // 明确判断布尔值
+        // 【关键修复】密码修改成功后，执行退出登录操作
+        await _userService.logout();
+
+        // 延迟一小段时间让用户看到提示
+        await Future.delayed(const Duration(seconds: 2));
+
+        // 强制退出到登录页，并清空所有历史路由
+        // 增加 `!context.mounted` 检查，确保安全
+        if (!context.mounted) return;
+        Navigator.of(context).pushAndRemoveUntil(
+          MaterialPageRoute(builder: (context) => const LoginPage()),
+              (Route<dynamic> route) => false,
+        );
       }
     }
   }
@@ -101,10 +82,7 @@ class _AccountSecurityPageState extends State<AccountSecurityPage> {
           icon: const Icon(Icons.arrow_back_ios_new, color: AppColors.textPrimary),
           onPressed: () => Navigator.of(context).pop(),
         ),
-        title: const Text(
-          '账号与安全',
-          style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.bold),
-        ),
+        title: const Text('账号与安全', style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.bold)),
         centerTitle: true,
       ),
       body: SingleChildScrollView(
@@ -113,7 +91,6 @@ class _AccountSecurityPageState extends State<AccountSecurityPage> {
           children: [
             _buildSecurityNotice(),
             SizedBox(height: 24.h),
-            // ✅ 新增：账户信息卡片，仅用于显示
             _buildAccountInfoCard(),
             SizedBox(height: 24.h),
             _buildChangePasswordForm(),
@@ -123,7 +100,6 @@ class _AccountSecurityPageState extends State<AccountSecurityPage> {
     );
   }
 
-  // ✅ 新增：账户信息卡片，仅显示用户名
   Widget _buildAccountInfoCard() {
     return Card(
       elevation: 2,
@@ -136,7 +112,7 @@ class _AccountSecurityPageState extends State<AccountSecurityPage> {
           leading: const Icon(Icons.person_outline, color: AppColors.primary),
           title: const Text('用户名', style: TextStyle(color: AppColors.textSecondary)),
           trailing: Text(
-            _currentUser?.userName ?? '加载中...',
+            widget.user.username,
             style: TextStyle(fontSize: 16.sp, fontWeight: FontWeight.w500, color: AppColors.textPrimary),
           ),
         ),
@@ -144,7 +120,65 @@ class _AccountSecurityPageState extends State<AccountSecurityPage> {
     );
   }
 
-  // 安全提示区域
+  Widget _buildChangePasswordForm() {
+    return Form(
+      key: _formKey,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _buildPasswordTextField(
+            controller: _oldPasswordController,
+            label: '原密码',
+            isVisible: _isOldPasswordVisible,
+            onVisibilityToggle: () => setState(() => _isOldPasswordVisible = !_isOldPasswordVisible),
+            validator: (value) {
+              if (value == null || value.isEmpty) return '请输入您的原密码';
+              // 客户端校验原密码是否与登录时缓存的一致
+              if (value != widget.user.passwordHash) return '原密码不正确';
+              return null;
+            },
+          ),
+          SizedBox(height: 20.h),
+          _buildPasswordTextField(
+            controller: _newPasswordController,
+            label: '新密码',
+            isVisible: _isNewPasswordVisible,
+            onVisibilityToggle: () => setState(() => _isNewPasswordVisible = !_isNewPasswordVisible),
+            validator: (value) {
+              if (value == null || value.length < 6) return '新密码不能少于6位';
+              if (value == _oldPasswordController.text) return '新密码不能与原密码相同';
+              return null;
+            },
+          ),
+          SizedBox(height: 20.h),
+          _buildPasswordTextField(
+            controller: _confirmPasswordController,
+            label: '确认新密码',
+            isVisible: _isConfirmPasswordVisible,
+            onVisibilityToggle: () => setState(() => _isConfirmPasswordVisible = !_isConfirmPasswordVisible),
+            validator: (value) {
+              if (value != _newPasswordController.text) return '两次输入的密码不一致';
+              return null;
+            },
+          ),
+          SizedBox(height: 40.h),
+          ElevatedButton.icon(
+            icon: _isSaving ? const SizedBox.shrink() : const Icon(Icons.save_outlined),
+            label: Text(_isSaving ? '正在提交...' : '确认修改'),
+            onPressed: _isSaving ? null : _changePassword,
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.primary,
+              foregroundColor: Colors.white,
+              padding: EdgeInsets.symmetric(vertical: 14.h),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12.r)),
+              textStyle: TextStyle(fontSize: 18.sp, fontWeight: FontWeight.bold),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildSecurityNotice() {
     return Container(
       padding: EdgeInsets.all(16.w),
@@ -186,80 +220,6 @@ class _AccountSecurityPageState extends State<AccountSecurityPage> {
       ),
     );
   }
-
-  // 修改密码表单区域
-  Widget _buildChangePasswordForm() {
-    return Form(
-      key: _formKey,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          _buildPasswordTextField(
-            controller: _oldPasswordController,
-            label: '原密码',
-            isVisible: _isOldPasswordVisible,
-            onVisibilityToggle: () {
-              setState(() => _isOldPasswordVisible = !_isOldPasswordVisible);
-            },
-            validator: (value) {
-              if (value == null || value.isEmpty) {
-                return '请输入您的原密码';
-              }
-              return null;
-            },
-          ),
-          SizedBox(height: 20.h),
-          _buildPasswordTextField(
-            controller: _newPasswordController,
-            label: '新密码',
-            isVisible: _isNewPasswordVisible,
-            onVisibilityToggle: () {
-              setState(() => _isNewPasswordVisible = !_isNewPasswordVisible);
-            },
-            validator: (value) {
-              if (value == null || value.length < 6) {
-                return '新密码不能少于6位';
-              }
-              if (value == _oldPasswordController.text) {
-                return '新密码不能与原密码相同';
-              }
-              return null;
-            },
-          ),
-          SizedBox(height: 20.h),
-          _buildPasswordTextField(
-            controller: _confirmPasswordController,
-            label: '确认新密码',
-            isVisible: _isConfirmPasswordVisible,
-            onVisibilityToggle: () {
-              setState(() => _isConfirmPasswordVisible = !_isConfirmPasswordVisible);
-            },
-            validator: (value) {
-              if (value != _newPasswordController.text) {
-                return '两次输入的密码不一致';
-              }
-              return null;
-            },
-          ),
-          SizedBox(height: 40.h),
-          ElevatedButton.icon(
-            icon: const Icon(Icons.save_outlined),
-            label: const Text('确认修改'),
-            onPressed: _changePassword,
-            style: ElevatedButton.styleFrom(
-              backgroundColor: AppColors.primary,
-              foregroundColor: Colors.white,
-              padding: EdgeInsets.symmetric(vertical: 14.h),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12.r)),
-              textStyle: TextStyle(fontSize: 18.sp, fontWeight: FontWeight.bold),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  // 可切换可见性的密码输入框
   Widget _buildPasswordTextField({
     required TextEditingController controller,
     required String label,
