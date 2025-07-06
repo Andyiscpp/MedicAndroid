@@ -235,7 +235,7 @@ class _HomePageState extends State<HomePage> {
   }
 
   Widget _buildMedicinalOverviewSection() {
-    final previewHerbs = _overviewHerbs.take(4).toList();
+    final previewHerbs = _overviewHerbs.take(8).toList();
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -299,6 +299,11 @@ class _HomePageState extends State<HomePage> {
               return SizedBox(height: 180.h, child: const Center(child: Text('暂无共享内容')));
             }
             final allUploads = snapshot.data!;
+            allUploads.sort((a, b) {
+              final idA = a.locations.isNotEmpty ? a.locations.first.id ?? 0 : 0;
+              final idB = b.locations.isNotEmpty ? b.locations.first.id ?? 0 : 0;
+              return idB.compareTo(idA);
+            });
             final itemCount = allUploads.length + 1;
 
             return SizedBox(

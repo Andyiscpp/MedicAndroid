@@ -2,6 +2,9 @@
     <!-- ✅ 核心修正：只保留最核心的 INTERNET 权限 -->
     <uses-permission android:name="android.permission.INTERNET" />
 
+    <!--下面2行是相机权限-->
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <!-- ✅ 核心修正：删除所有不再需要的高德地图相关权限 -->

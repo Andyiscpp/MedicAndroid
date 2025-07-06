@@ -7,10 +7,8 @@ import 'package:demo_conut/data/models/medicinal_data.dart';
 import 'package:demo_conut/pages/home_page.dart'; // For AppColors
 import 'package:demo_conut/pages/upload_detail_page_v2.dart';
 
-// 1. 将其转换为 StatefulWidget
 class AllUploadsPage extends StatefulWidget {
   final String title;
-  // 移除了 uploads 属性，因为它将从内部获取
 
   const AllUploadsPage({super.key, required this.title});
 
@@ -19,15 +17,74 @@ class AllUploadsPage extends StatefulWidget {
 }
 
 class _AllUploadsPageState extends State<AllUploadsPage> {
-  // 2. 定义 Future 用于获取数据
-  late Future<List<MedicinalData>> _uploadsFuture;
   final MedicinalDataService _dataService = MedicinalDataService();
+  final TextEditingController _searchController = TextEditingController();
+
+  // 用于存储从服务器获取的原始数据列表
+  List<MedicinalData> _allUploads = [];
+  // 用于存储经过筛选和排序后，最终在界面上显示的数据列表
+  List<MedicinalData> _filteredUploads = [];
+  // 标记是否正在加载数据
+  bool _isLoading = true;
 
   @override
   void initState() {
     super.initState();
-    // 3. 在 initState 中调用新的服务方法
-    _uploadsFuture = _dataService.getAllUploadsData();
+    // 添加监听器，当搜索框内容变化时，触发筛选
+    _searchController.addListener(_filterUploads);
+    // 页面初始化时，获取所有数据
+    _fetchData();
+  }
+
+  @override
+  void dispose() {
+    // 页面销毁时，移除监听器并释放控制器
+    _searchController.removeListener(_filterUploads);
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  /// 1. 从服务器获取数据并进行初始排序
+  Future<void> _fetchData() async {
+    // 如果页面还未加载完成，则不重复获取数据
+    if (!mounted) return;
+
+    // 开始加载，显示加载动画
+    setState(() {
+      _isLoading = true;
+    });
+
+    final data = await _dataService.getAllUploadsData();
+
+    // ==================== 排序规则应用处 ====================
+    // 根据 locationId 进行降序排序
+    data.sort((a, b) {
+      final idA = a.locations.isNotEmpty ? a.locations.first.id ?? 0 : 0;
+      final idB = b.locations.isNotEmpty ? b.locations.first.id ?? 0 : 0;
+      return idB.compareTo(idA);
+    });
+    // ==========================================================
+
+    // 如果页面还未销毁，则更新状态
+    if (mounted) {
+      setState(() {
+        _allUploads = data;
+        _filteredUploads = data; // 初始状态下，显示所有数据
+        _isLoading = false; // 加载完成
+      });
+    }
+  }
+
+  /// 2. 根据搜索框的文本筛选列表
+  void _filterUploads() {
+    final query = _searchController.text.toLowerCase();
+    setState(() {
+      _filteredUploads = _allUploads.where((data) {
+        // 将药材名称也转为小写进行不区分大小写的匹配
+        final herbName = data.herb.name.toLowerCase();
+        return herbName.contains(query);
+      }).toList();
+    });
   }
 
   @override
@@ -47,43 +104,60 @@ class _AllUploadsPageState extends State<AllUploadsPage> {
         ),
         centerTitle: true,
       ),
-      // 4. 使用 FutureBuilder 来构建主体内容
-      body: FutureBuilder<List<MedicinalData>>(
-        future: _uploadsFuture,
-        builder: (context, snapshot) {
-          // 正在加载
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator(color: AppColors.primary));
-          }
+      body: Column(
+        children: [
+          // ==================== 新增的搜索框 ====================
+          Padding(
+            padding: EdgeInsets.symmetric(horizontal: 16.w, vertical: 8.h),
+            child: TextField(
+              controller: _searchController,
+              decoration: InputDecoration(
+                hintText: '按药材名称搜索...',
+                prefixIcon: const Icon(Icons.search, color: AppColors.textSecondary),
+                filled: true,
+                fillColor: Colors.white,
+                contentPadding: EdgeInsets.symmetric(vertical: 10.h),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(30.r),
+                  borderSide: BorderSide.none,
+                ),
+                suffixIcon: _searchController.text.isNotEmpty
+                    ? IconButton(
+                  icon: const Icon(Icons.clear, color: AppColors.textSecondary),
+                  onPressed: () {
+                    _searchController.clear();
+                  },
+                )
+                    : null,
+              ),
+            ),
+          ),
+          // ======================================================
 
-          // 加载出错
-          if (snapshot.hasError) {
-            return Center(
-              child: Text('加载失败: ${snapshot.error}'),
-            );
-          }
-
-          // 没有数据或数据为空
-          if (!snapshot.hasData || snapshot.data!.isEmpty) {
-            return _buildEmptyState();
-          }
-
-          // 加载成功，显示列表
-          final uploads = snapshot.data!;
-          uploads.sort((a, b) => (b.herb.id ?? 0).compareTo(a.herb.id ?? 0));
-
-          return ListView.builder(
-            padding: EdgeInsets.symmetric(horizontal: 12.w, vertical: 10.h),
-            itemCount: uploads.length,
-            itemBuilder: (context, index) {
-              final data = uploads[index];
-              return _buildUploadCard(context, data);
-            },
-          );
-        },
+          // 使用 Expanded 包裹列表，使其填充剩余空间
+          Expanded(
+            child: _isLoading
+                ? const Center(child: CircularProgressIndicator(color: AppColors.primary))
+                : _filteredUploads.isEmpty
+                ? _buildEmptyState()
+                : RefreshIndicator(
+              onRefresh: _fetchData, // 支持下拉刷新
+              child: ListView.builder(
+                padding: EdgeInsets.symmetric(horizontal: 12.w, vertical: 10.h),
+                itemCount: _filteredUploads.length,
+                itemBuilder: (context, index) {
+                  final data = _filteredUploads[index];
+                  return _buildUploadCard(context, data);
+                },
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
+
+  // --- UI 构建相关的辅助方法 (基本保持不变) ---
 
   Widget _buildUploadCard(BuildContext context, MedicinalData data) {
     final herbName = data.herb.name;
@@ -175,10 +249,10 @@ class _AllUploadsPageState extends State<AllUploadsPage> {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(Icons.inbox_outlined, size: 80.sp, color: Colors.grey.shade400),
+          Icon(Icons.search_off_outlined, size: 80.sp, color: Colors.grey.shade400),
           SizedBox(height: 16.h),
           Text(
-            '还没有任何上传记录',
+            _searchController.text.isEmpty ? '还没有任何上传记录' : '未找到匹配的药材',
             style: TextStyle(fontSize: 16.sp, color: AppColors.textSecondary),
           ),
         ],

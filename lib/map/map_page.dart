@@ -58,7 +58,7 @@ class _MapPageState extends State<MapPage> {
               longitude: loc.longitude,
               child: Tooltip(
                 message: "${data.herb.name}\n${loc.address}",
-                child: const Icon(Icons.location_pin, color: Colors.redAccent, size: 30),
+                child: const Icon(Icons.location_pin, color: Colors.blueAccent, size: 30),
               ),
             ),
           );

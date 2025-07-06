@@ -114,6 +114,9 @@ class _MainPageState extends State<MainPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      // ✅ FIX: Set the Scaffold's background color to match the page background.
+      // This is the root cause of the color mismatch issue.
+      backgroundColor: AppColors.background,
       appBar: _buildAppBar(), // 使用统一管理的AppBar
       body: IndexedStack(
         index: _selectedIndex,
@@ -130,6 +133,8 @@ class _MainPageState extends State<MainPage> {
         selectedItemColor: AppColors.primary,
         unselectedItemColor: Colors.grey,
         type: BottomNavigationBarType.fixed,
+        // ✅ AESTHETIC IMPROVEMENT: Also set the BottomNavBar background to match.
+        backgroundColor: AppColors.cardBackground,
       ),
     );
   }
