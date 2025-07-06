@@ -1,10 +1,8 @@
 // lib/map/map_page.dart
 
 import 'package:flutter/material.dart';
-// 1. 导入 Syncfusion Maps 插件包
 import 'package:syncfusion_flutter_maps/maps.dart';
 
-// 导入您项目中的文件
 import 'package:demo_conut/data/models/medicinal_data.dart' as model;
 import 'package:demo_conut/services/medicinal_data_service.dart';
 import 'package:demo_conut/pages/home_page.dart'; // For AppColors
@@ -20,76 +18,85 @@ class _MapPageState extends State<MapPage> {
   final MedicinalDataService _dataService = MedicinalDataService();
   bool _isLoading = true;
 
-  // 2. 使用新的数据源来存储标记点
-  late MapModel _mapModel;
-
-  // 3. 用于控制地图的缩放和中心点
+  List<MapMarker> _markers = [];
   late MapZoomPanBehavior _zoomPanBehavior;
+
+  Key _mapKey = UniqueKey();
 
   @override
   void initState() {
     super.initState();
-    // 初始化地图数据模型
-    _mapModel = MapModel([]);
-
-    // 4. 初始化地图的初始视角
+    // Initialize with default behavior
     _zoomPanBehavior = MapZoomPanBehavior(
-      focalLatLng: const MapLatLng(29.5630, 106.5516), // 中国中心
-      zoomLevel: 8,
-      enablePinching: true, // 允许双指缩放
+      focalLatLng: const MapLatLng(36.0, 104.0), // 中国地理中心大致位置
+      zoomLevel: 4,
+      enablePinching: true,
+      enablePanning: true,
     );
-
-    // 加载您的药材数据
     _loadAllLocations();
   }
 
-  // 加载并显示所有药材位置的标记点
   Future<void> _loadAllLocations() async {
-    setState(() {
-      _isLoading = true;
-    });
+    if (mounted) {
+      setState(() {
+        _isLoading = true;
+      });
+    }
 
-    final allData = await _dataService.getAllData();
+    final allData = await _dataService.getAllUploadsData();
     final List<MapMarker> newMarkers = [];
 
-    // ✅ 调试点 4: 打印地图页收到的数据数量
     print("--- [MapPage] 地图页收到的数据条数: ${allData.length} ---");
-
 
     for (final data in allData) {
       for (final loc in data.locations) {
-
-        // ✅ 调试点 5: 打印正在创建的每个标记的坐标
-        print("--- [MapPage] 正在创建标记点，坐标: Lat=${loc.latitude}, Lng=${loc.longitude} ---");
-
-        newMarkers.add(
-          MapMarker(
-            latitude: loc.latitude,
-            longitude: loc.longitude,
-            // 5. 您可以自定义标记点的外观
-            child: Tooltip(
-              message: "${data.herb.name}\n${loc.address}",
-              child: const Icon(Icons.location_pin, color: Colors.redAccent, size: 30),
+        if (loc.latitude != 0.0 && loc.longitude != 0.0) {
+          print("--- [MapPage] 正在创建标记点，坐标: Lat=${loc.latitude}, Lng=${loc.longitude} ---");
+          newMarkers.add(
+            MapMarker(
+              latitude: loc.latitude,
+              longitude: loc.longitude,
+              child: Tooltip(
+                message: "${data.herb.name}\n${loc.address}",
+                child: const Icon(Icons.location_pin, color: Colors.redAccent, size: 30),
+              ),
             ),
-          ),
-        );
+          );
+        } else {
+          print("--- [MapPage] 警告: 跳过一个无效坐标的记录 (0,0) ---");
+        }
       }
     }
 
     if (!mounted) return;
 
-    // 6. 更新数据源并刷新地图
     setState(() {
-      _mapModel = MapModel(newMarkers);
+      _markers = newMarkers;
       _isLoading = false;
+      _mapKey = UniqueKey();
 
-      // 如果有标记点，将地图视野移动到第一个点的位置
-      if (newMarkers.isNotEmpty) {
-        _zoomPanBehavior.focalLatLng = MapLatLng(
-            newMarkers.first.latitude, newMarkers.first.longitude);
-        _zoomPanBehavior.zoomLevel = 10;
+      // ✅ *** 核心修复点 ***
+      // 当数据更新时，不仅更新markers和key，还要创建一个全新的MapZoomPanBehavior对象
+      // 这可以确保新的SfMaps widget得到一个干净的、无状态污染的控制器。
+      if (_markers.isNotEmpty) {
+        _zoomPanBehavior = MapZoomPanBehavior(
+          focalLatLng: MapLatLng(
+              _markers.first.latitude, _markers.first.longitude),
+          zoomLevel: 8,
+          enablePinching: true,
+          enablePanning: true,
+        );
+      } else {
+        // 如果没有标记点，则重置回默认的中国视图
+        _zoomPanBehavior = MapZoomPanBehavior(
+          focalLatLng: const MapLatLng(36.0, 104.0),
+          zoomLevel: 4,
+          enablePinching: true,
+          enablePanning: true,
+        );
       }
     });
+    print("--- [MapPage] setState 已调用，标记点数量: ${_markers.length} ---");
   }
 
   @override
@@ -110,17 +117,33 @@ class _MapPageState extends State<MapPage> {
       ),
       body: Stack(
         children: [
-          // 7. 使用 SfMaps 作为地图主组件
           SfMaps(
+            key: _mapKey,
             layers: <MapLayer>[
-              // 地图瓦片图层，负责显示地图背景
               MapTileLayer(
                 urlTemplate: 'https://wprd01.is.autonavi.com/appmaptile?style=7&x={x}&y={y}&z={z}',
                 zoomPanBehavior: _zoomPanBehavior,
-                // 标记点图层
-                initialMarkersCount: _mapModel.markers.length,
+                initialMarkersCount: _markers.length,
                 markerBuilder: (BuildContext context, int index) {
-                  return _mapModel.markers[index];
+                  return _markers[index];
+                },
+                markerTooltipBuilder: (BuildContext context, int index) {
+                  final marker = _markers[index];
+                  if (marker.child is Tooltip) {
+                    final tooltip = marker.child as Tooltip;
+                    return Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: Colors.black87,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Text(
+                        tooltip.message ?? "未知位置",
+                        style: const TextStyle(color: Colors.white, fontSize: 12),
+                      ),
+                    );
+                  }
+                  return Container();
                 },
               ),
             ],
@@ -129,15 +152,37 @@ class _MapPageState extends State<MapPage> {
             const Center(
               child: CircularProgressIndicator(color: AppColors.primary),
             ),
+
+          if (!_isLoading)
+            Positioned(
+              top: 10,
+              left: 10,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                decoration: BoxDecoration(
+                  color: Colors.black.withOpacity(0.7),
+                  borderRadius: BorderRadius.circular(15),
+                ),
+                child: Text(
+                  '共 ${_markers.length} 个标记点',
+                  style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w500),
+                ),
+              ),
+            ),
+
+          if (!_isLoading)
+            Positioned(
+              bottom: 20,
+              right: 20,
+              child: FloatingActionButton(
+                mini: true,
+                backgroundColor: AppColors.primary,
+                onPressed: _loadAllLocations,
+                child: const Icon(Icons.refresh, color: Colors.white),
+              ),
+            ),
         ],
       ),
     );
   }
 }
-
-/// 8. 用于存储地图标记点的数据模型
-class MapModel {
-  const MapModel(this.markers);
-  final List<MapMarker> markers;
-}
-

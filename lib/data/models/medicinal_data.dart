@@ -21,7 +21,8 @@ class MedicinalData {
       locations: (map['locations'] as List? ?? [])
           .map((item) => Location.fromMap(item))
           .toList(),
-      growthData: (map['growth_data'] as List? ?? [])
+      // ✅ 确保这里也使用正确的 camelCase 键名
+      growthData: (map['growthData'] as List? ?? [])
           .map((item) => GrowthData.fromMap(item))
           .toList(),
       images: (map['images'] as List? ?? [])
@@ -34,7 +35,8 @@ class MedicinalData {
     return {
       'herb': herb.toMap(),
       'locations': locations.map((item) => item.toMap()).toList(),
-      'growth_data': growthData.map((item) => item.toMap()).toList(),
+      // ✅ 确保序列化回JSON时也使用 camelCase
+      'growthData': growthData.map((item) => item.toMap()).toList(),
       'images': images.map((item) => item.toMap()).toList(),
     };
   }
@@ -56,15 +58,13 @@ class Herb {
     this.uploaderName,
   });
 
-  // ✅ *** 核心修正点 ***
-  // 为所有可能从JSON中接收到null的String字段提供默认值
   factory Herb.fromMap(Map<String, dynamic> map) {
     return Herb(
       id: map['id'],
-      name: map['name'] ?? '未知名称', // 如果name为null，则默认为'未知名称'
-      scientificName: map['scientificName'] ?? '', // 如果scientificName为null，则默认为空字符串
-      description: map['description'] ?? '', // 如果description为null，则默认为空字符串
-      uploaderName: map['uploaderName'], // uploaderName本身是可空的，所以无需??
+      name: map['name'] ?? '未知名称',
+      scientificName: map['scientificName'] ?? '',
+      description: map['description'] ?? '',
+      uploaderName: map['uploaderName'],
     );
   }
 
@@ -72,7 +72,6 @@ class Herb {
     return {
       'id': id,
       'name': name,
-      // ✅ 后端字段名为 scientificName，请确保这里也一致
       'scientificName': scientificName,
       'description': description,
       'uploaderName': uploaderName,
@@ -105,13 +104,13 @@ class Location {
   factory Location.fromMap(Map<String, dynamic> map) {
     return Location(
       id: map['id'],
-      herbId: map['herb_id'],
+      herbId: map['herb_id'] ?? map['herbId'], // 兼容两种写法
       longitude: (map['longitude'] as num? ?? 0.0).toDouble(),
       latitude: (map['latitude'] as num? ?? 0.0).toDouble(),
       province: map['province'] ?? '',
       city: map['city'] ?? '',
       address: map['address'] ?? '',
-      observationYear: map['observation_year'] ?? DateTime.now().year,
+      observationYear: map['observation_year'] ?? map['observationYear'] ?? DateTime.now().year,
     );
   }
 
@@ -147,25 +146,27 @@ class GrowthData {
     required this.recordedAt,
   });
 
+  // ✅ *** 核心修复点 ***
   factory GrowthData.fromMap(Map<String, dynamic> map) {
     return GrowthData(
       id: map['id'],
-      locationId: map['location_id'],
-      metricName: map['metric_name'] ?? '',
-      metricValue: map['metric_value'] ?? '',
-      metricUnit: map['metric_unit'] ?? '',
-      recordedAt: DateTime.tryParse(map['recorded_at'] ?? '') ?? DateTime.now(),
+      locationId: map['location_id'] ?? map['locationId'],
+      // 将所有 key 从 snake_case 改为 camelCase
+      metricName: map['metricName'] ?? '',
+      metricValue: map['metricValue'] ?? '',
+      metricUnit: map['metricUnit'] ?? '',
+      recordedAt: DateTime.tryParse(map['recorded_at'] ?? map['recordedAt'] ?? '') ?? DateTime.now(),
     );
   }
 
   Map<String, dynamic> toMap() {
     return {
       'id': id,
-      'location_id': locationId,
-      'metric_name': metricName,
-      'metric_value': metricValue,
-      'metric_unit': metricUnit,
-      'recorded_at': recordedAt.toIso8601String(),
+      'locationId': locationId,
+      'metricName': metricName,
+      'metricValue': metricValue,
+      'metricUnit': metricUnit,
+      'recordedAt': recordedAt.toIso8601String(),
     };
   }
 }
@@ -189,9 +190,9 @@ class ImageData {
   factory ImageData.fromMap(Map<String, dynamic> map) {
     return ImageData(
       id: map['id'],
-      herbId: map['herb_id'],
+      herbId: map['herb_id'] ?? map['herbId'],
       url: map['url'] ?? '',
-      isPrimary: map['is_primary'] ?? 0,
+      isPrimary: map['is_primary'] ?? map['isPrimary'] ?? 0,
       description: map['description'] ?? '',
     );
   }

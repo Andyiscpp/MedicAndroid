@@ -7,99 +7,124 @@ import 'package:demo_conut/data/models/medicinal_data.dart';
 
 class MedicinalDataService {
   final String _baseUrl = 'http://192.168.68.3:81/api/herb';
-  // ✅ **复活**: 用于本地缓存的Key
   static const String _dataKey = 'medicinal_data_cache_v3';
 
-  /// ✅ **核心重构**: "网络优先，缓存备用" 的数据获取策略
-  Future<List<MedicinalData>> getAllData() async {
+  /// ✅ 全新重写: 使用为新后端格式优化的方法
+  Future<List<MedicinalData>> getAllUploadsData() async {
+    final url = Uri.parse('$_baseUrl/uploads/all');
+    print('【网络请求】开始: 获取所有上传记录 (新接口) -> $url');
+
     try {
-      // 步骤 1: 优先从网络获取最新数据
-      final herbsUrl = Uri.parse('$_baseUrl/herbs?limit=1000');
-      final herbsResponse = await http.get(herbsUrl);
+      final response = await http.get(url);
 
-      if (herbsResponse.statusCode != 200) {
-        // 网络请求失败，安全回退到本地缓存
-        print('网络请求失败，将从本地缓存加载数据...');
-        return _getAllDataFromPrefs();
-      }
+      if (response.statusCode == 200) {
+        final body = jsonDecode(utf8.decode(response.bodyBytes));
 
-      final herbsBody = jsonDecode(utf8.decode(herbsResponse.bodyBytes));
-      if (herbsBody['code'] != 20000 || herbsBody['data']?['records'] == null) {
-        print('获取药材列表业务逻辑失败，将从本地缓存加载...');
-        return _getAllDataFromPrefs();
-      }
+        if (body['code'] == 20000 && body['data'] is List) {
+          final List<dynamic> records = body['data'];
+          print('【网络请求】成功: 从新接口获取了 ${records.length} 条记录。');
 
-      final List<dynamic> herbRecords = herbsBody['data']['records'];
-      final List<MedicinalData> networkData = [];
+          List<MedicinalData> allData = [];
 
-      for (var herbJson in herbRecords) {
-        final herb = Herb(
-            id: herbJson['id'],
-            name: herbJson['name'] ?? '未知名称',
-            scientificName: herbJson['scientificName'] ?? '未知学名',
-            description: herbJson['description'] ?? '暂无描述',
-            uploaderName: herbJson['creatorName'] ?? '匿名');
+          // 直接遍历，不再需要发送子请求
+          for (var record in records) {
+            if (record is! Map<String, dynamic>) continue; // 安全检查
 
-        // ... (此处省略了获取图片和地点的逻辑，与上一版相同)
-        final imagesUrl = Uri.parse('$_baseUrl/herbs/${herb.id}/images');
-        final imagesResponse = await http.get(imagesUrl);
-        final List<ImageData> images = [];
-        if (imagesResponse.statusCode == 200) {
-          final imagesBody = jsonDecode(utf8.decode(imagesResponse.bodyBytes));
-          if (imagesBody['code'] == 20000 && imagesBody['data'] is List) {
-            final imageRecords = imagesBody['data'] as List;
-            for (var imgRecord in imageRecords) {
-              images.add(ImageData.fromMap(imgRecord));
+            // 1. 从记录中构建 Herb 对象
+            final herb = Herb(
+              id: record['herbId'],
+              name: record['herbName'] ?? '未知名称',
+              uploaderName: record['uploaderName'], // 可以为 null
+              // 以下字段在新接口中没有，提供默认值
+              scientificName: '',
+              description: '',
+            );
+
+            // 2. 从记录中构建 Location 对象
+            final location = Location(
+              id: record['locationId'],
+              herbId: record['herbId'],
+              longitude: (record['longitude'] as num?)?.toDouble() ?? 0.0,
+              latitude: (record['latitude'] as num?)?.toDouble() ?? 0.0,
+              province: record['province'] ?? '',
+              city: record['city'] ?? '',
+              address: record['address'] ?? '',
+              observationYear: record['observationYear'] ?? DateTime.now().year,
+            );
+
+            // 3. 从记录中的 imageUrls 构建 ImageData 列表
+            List<ImageData> images = [];
+            if (record['imageUrls'] is List) {
+              final List<dynamic> urlList = record['imageUrls'];
+              for (int i = 0; i < urlList.length; i++) {
+                if (urlList[i] is String) {
+                  images.add(ImageData(
+                    url: urlList[i],
+                    isPrimary: i == 0 ? 1 : 0, // 将第一张图设为主图
+                    description: '', // 新接口无此字段
+                  ));
+                }
+              }
             }
+
+            // 4. 从记录中的 growthData 构建 GrowthData 列表
+            List<GrowthData> growthDataList = [];
+            if (record['growthData'] is List) {
+              final List<dynamic> rawGrowthList = record['growthData'];
+              for(final rawGrowth in rawGrowthList) {
+                if (rawGrowth is Map<String, dynamic>) {
+                  // 假设后端没有 recordedAt，客户端生成
+                  rawGrowth['recorded_at'] = DateTime.now().toIso8601String();
+                  growthDataList.add(GrowthData.fromMap(rawGrowth));
+                }
+              }
+            }
+
+            // 5. 组装成一个完整的 MedicinalData 对象
+            allData.add(MedicinalData(
+              herb: herb,
+              locations: [location], // 假设一条记录对应一个地点
+              growthData: growthDataList,
+              images: images,
+            ));
           }
+
+          print('【数据处理】成功解析了 ${allData.length} 条记录。');
+          return allData;
         }
-
-        // 此处依然使用占位数据，等待后端提供相应API
-        final List<Location> locations = [
-          Location.fromMap(herbJson['location'] ?? {'province': '未知', 'city': '未知'})
-        ];
-        final List<GrowthData> growthData = [];
-
-        networkData.add(MedicinalData(
-            herb: herb,
-            images: images,
-            locations: locations,
-            growthData: growthData
-        ));
       }
-
-      // 步骤 2: 获取成功后，用最新数据更新本地缓存
-      await _saveAllData(networkData);
-      print('成功从网络获取数据并更新了本地缓存。');
-      return networkData;
-
-    } catch (e) {
-      // 发生任何异常时，都安全地回退到本地缓存
-      print('获取网络数据时发生未知异常: $e，将从本地缓存加载。');
-      return _getAllDataFromPrefs();
+      print('【网络请求】失败: 获取上传记录失败，状态码: ${response.statusCode}');
+      return []; // 如果请求失败，返回空列表
+    } catch (e, s) {
+      print('【网络请求】异常: 调用/uploads/all接口时发生未知异常: $e');
+      print('堆栈跟踪: $s');
+      return []; // 发生异常时返回空列表
     }
   }
 
-  /// ✅ **复活**: 用于在上传成功后，立即向本地缓存中添加一条记录
-  Future<void> addDataToLocalCache(MedicinalData newData) async {
-    final allData = await _getAllDataFromPrefs();
 
-    // 为了防止重复添加，可以先移除可能存在的旧版本
-    allData.removeWhere((d) => d.herb.id == newData.herb.id);
-    allData.insert(0, newData); // 插入到列表最前面，以便在UI中立即看到
+  // --- 以下是旧方法，为了保持应用其他部分能工作，我们暂时保留它们 ---
+  // --- 但在理想情况下，所有的数据获取都应迁移到新的高效接口 ---
 
-    await _saveAllData(allData);
-    print('已将新上传的数据添加到本地缓存中。');
+  Future<List<MedicinalData>> getAllData() async {
+    // 暂时让此方法也调用新的高效接口，以统一数据源
+    print("【兼容模式】getAllData() 被调用，重定向到新的 getAllUploadsData() 方法。");
+    return await getAllUploadsData();
   }
 
-  /// ✅ **复活**: 从SharedPreferences获取所有数据的私有方法
+  Future<void> addDataToLocalCache(MedicinalData newData) async {
+    final allData = await _getAllDataFromPrefs();
+    allData.removeWhere((d) => d.herb.id == newData.herb.id);
+    allData.insert(0, newData);
+    await _saveAllData(allData);
+  }
+
   Future<List<MedicinalData>> _getAllDataFromPrefs() async {
     final prefs = await SharedPreferences.getInstance();
     final dataJson = prefs.getStringList(_dataKey) ?? [];
     return dataJson.map((json) => MedicinalData.fromMap(jsonDecode(json))).toList();
   }
 
-  /// ✅ **复活**: 将所有数据保存到SharedPreferences的私有方法
   Future<void> _saveAllData(List<MedicinalData> allData) async {
     final prefs = await SharedPreferences.getInstance();
     final dataJson = allData.map((data) => jsonEncode(data.toMap())).toList();

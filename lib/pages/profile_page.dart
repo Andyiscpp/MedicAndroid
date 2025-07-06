@@ -3,9 +3,8 @@
 import 'package:demo_conut/data/models/user.dart';
 import 'package:demo_conut/pages/about_us_page.dart';
 import 'package:demo_conut/pages/account_security_page.dart';
-import 'package:demo_conut/pages/all_uploads_page.dart';
 import 'package:demo_conut/pages/edit_profile_page.dart';
-import 'package:demo_conut/services/medicinal_data_service.dart';
+import 'package:demo_conut/pages/my_uploads_page.dart';
 import 'package:demo_conut/services/user_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
@@ -20,7 +19,6 @@ class ProfilePage extends StatefulWidget {
 
 class _ProfilePageState extends State<ProfilePage> {
   final UserService _userService = UserService();
-  final MedicinalDataService _medicinalDataService = MedicinalDataService();
   User? _currentUser;
   bool _isLoading = true;
 
@@ -31,7 +29,8 @@ class _ProfilePageState extends State<ProfilePage> {
   }
 
   Future<void> _loadCurrentUser() async {
-    if (mounted) setState(() => _isLoading = true);
+    if (!mounted) return;
+    setState(() => _isLoading = true);
     final user = await _userService.fetchAndSaveUserProfile();
     if (mounted) {
       setState(() {
@@ -57,19 +56,10 @@ class _ProfilePageState extends State<ProfilePage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: AppColors.background,
-      appBar: AppBar(
-        backgroundColor: AppColors.background,
-        elevation: 0,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios_new, color: AppColors.textPrimary),
-          onPressed: () => Navigator.of(context).pop(),
-        ),
-        title: const Text('个人信息', style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.bold)),
-        centerTitle: true,
-      ),
-      body: _isLoading
+    // ✅ *** 核心修改点: 移除Scaffold和AppBar, 直接返回页面内容 ***
+    return Container(
+      color: AppColors.background,
+      child: _isLoading
           ? const Center(child: CircularProgressIndicator(color: AppColors.primary))
           : RefreshIndicator(
         onRefresh: _loadCurrentUser,
@@ -111,8 +101,6 @@ class _ProfilePageState extends State<ProfilePage> {
         SizedBox(height: 4.h),
         Text('用户名: ${_currentUser!.username}', style: TextStyle(fontSize: 14.sp, color: AppColors.textSecondary)),
         SizedBox(height: 4.h),
-        //Text('邮箱: ${_currentUser!.email ?? '未设置'}', style: TextStyle(fontSize: 14.sp, color: AppColors.textSecondary)),
-        //SizedBox(height: 4.h),
         if (_currentUser!.bio != null && _currentUser!.bio!.isNotEmpty)
           Padding(
             padding: EdgeInsets.symmetric(horizontal: 16.w, vertical: 4.h),
@@ -132,7 +120,6 @@ class _ProfilePageState extends State<ProfilePage> {
         children: [
           _buildOptionItem(Icons.edit_outlined, '编辑资料', _navigateToEditProfile),
           const Divider(height: 1, indent: 16, endIndent: 16),
-          // 【已修复】导航到安全页面，并传递user对象
           _buildOptionItem(Icons.shield_outlined, '账号与安全', () {
             if (_currentUser != null) {
               Navigator.push(
@@ -142,14 +129,11 @@ class _ProfilePageState extends State<ProfilePage> {
             }
           }),
           const Divider(height: 1, indent: 16, endIndent: 16),
-          _buildOptionItem(Icons.history_outlined, '我的上传', () async {
-            if (_currentUser == null) return;
-            final allData = await _medicinalDataService.getAllData();
-            // 使用 nickname 筛选
-            final myUploads = allData.where((data) => data.herb.uploaderName == _currentUser!.nickname).toList();
-            if (mounted) {
-              Navigator.push(context, MaterialPageRoute(builder: (context) => AllUploadsPage(title: '我的上传', uploads: myUploads)));
-            }
+          _buildOptionItem(Icons.history_outlined, '我的上传', () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(builder: (context) => const MyUploadsPage()),
+            );
           }),
           const Divider(height: 1, indent: 16, endIndent: 16),
           _buildOptionItem(Icons.info_outline, '关于我们', () {

@@ -1,33 +1,51 @@
-// lib/pages/all_uploads_page.dart
+// lib/pages/my_uploads_page.dart
 
+import 'package:demo_conut/data/models/user.dart';
 import 'package:demo_conut/services/medicinal_data_service.dart';
+import 'package:demo_conut/services/user_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:demo_conut/data/models/medicinal_data.dart';
 import 'package:demo_conut/pages/home_page.dart'; // For AppColors
 import 'package:demo_conut/pages/upload_detail_page_v2.dart';
 
-// 1. 将其转换为 StatefulWidget
-class AllUploadsPage extends StatefulWidget {
-  final String title;
-  // 移除了 uploads 属性，因为它将从内部获取
-
-  const AllUploadsPage({super.key, required this.title});
+class MyUploadsPage extends StatefulWidget {
+  const MyUploadsPage({super.key});
 
   @override
-  State<AllUploadsPage> createState() => _AllUploadsPageState();
+  State<MyUploadsPage> createState() => _MyUploadsPageState();
 }
 
-class _AllUploadsPageState extends State<AllUploadsPage> {
-  // 2. 定义 Future 用于获取数据
-  late Future<List<MedicinalData>> _uploadsFuture;
+class _MyUploadsPageState extends State<MyUploadsPage> {
+  late Future<List<MedicinalData>> _myUploadsFuture;
   final MedicinalDataService _dataService = MedicinalDataService();
+  final UserService _userService = UserService();
 
   @override
   void initState() {
     super.initState();
-    // 3. 在 initState 中调用新的服务方法
-    _uploadsFuture = _dataService.getAllUploadsData();
+    // 页面初始化时，调用方法获取“我的”上传记录
+    _myUploadsFuture = _fetchMyUploads();
+  }
+
+  /// 异步方法：获取并筛选出当前用户的上传记录
+  Future<List<MedicinalData>> _fetchMyUploads() async {
+    // 1. 获取当前登录的用户信息
+    final User? currentUser = await _userService.getLoggedInUser();
+    if (currentUser?.nickname == null) {
+      // 如果获取不到用户或昵称，返回空列表
+      return [];
+    }
+
+    // 2. 获取所有的上传记录
+    final List<MedicinalData> allUploads = await _dataService.getAllUploadsData();
+
+    // 3. 根据当前用户的昵称进行筛选
+    final List<MedicinalData> myUploads = allUploads
+        .where((data) => data.herb.uploaderName == currentUser?.nickname)
+        .toList();
+
+    return myUploads;
   }
 
   @override
@@ -41,15 +59,14 @@ class _AllUploadsPageState extends State<AllUploadsPage> {
           icon: const Icon(Icons.arrow_back_ios_new, color: AppColors.textPrimary),
           onPressed: () => Navigator.of(context).pop(),
         ),
-        title: Text(
-          widget.title,
-          style: const TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.bold),
+        title: const Text(
+          '我的上传',
+          style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.bold),
         ),
         centerTitle: true,
       ),
-      // 4. 使用 FutureBuilder 来构建主体内容
       body: FutureBuilder<List<MedicinalData>>(
-        future: _uploadsFuture,
+        future: _myUploadsFuture,
         builder: (context, snapshot) {
           // 正在加载
           if (snapshot.connectionState == ConnectionState.waiting) {
@@ -58,25 +75,22 @@ class _AllUploadsPageState extends State<AllUploadsPage> {
 
           // 加载出错
           if (snapshot.hasError) {
-            return Center(
-              child: Text('加载失败: ${snapshot.error}'),
-            );
+            return Center(child: Text('加载失败: ${snapshot.error}'));
           }
 
-          // 没有数据或数据为空
+          // 数据为空或没有数据
           if (!snapshot.hasData || snapshot.data!.isEmpty) {
             return _buildEmptyState();
           }
 
-          // 加载成功，显示列表
-          final uploads = snapshot.data!;
-          uploads.sort((a, b) => (b.herb.id ?? 0).compareTo(a.herb.id ?? 0));
+          final myUploads = snapshot.data!;
+          myUploads.sort((a, b) => (b.herb.id ?? 0).compareTo(a.herb.id ?? 0));
 
           return ListView.builder(
             padding: EdgeInsets.symmetric(horizontal: 12.w, vertical: 10.h),
-            itemCount: uploads.length,
+            itemCount: myUploads.length,
             itemBuilder: (context, index) {
-              final data = uploads[index];
+              final data = myUploads[index];
               return _buildUploadCard(context, data);
             },
           );
@@ -84,6 +98,8 @@ class _AllUploadsPageState extends State<AllUploadsPage> {
       ),
     );
   }
+
+  // --- 以下UI构建代码与 all_uploads_page.dart 保持一致，确保风格统一 ---
 
   Widget _buildUploadCard(BuildContext context, MedicinalData data) {
     final herbName = data.herb.name;
@@ -178,7 +194,7 @@ class _AllUploadsPageState extends State<AllUploadsPage> {
           Icon(Icons.inbox_outlined, size: 80.sp, color: Colors.grey.shade400),
           SizedBox(height: 16.h),
           Text(
-            '还没有任何上传记录',
+            '您还没有上传过任何记录',
             style: TextStyle(fontSize: 16.sp, color: AppColors.textSecondary),
           ),
         ],

@@ -24,73 +24,90 @@ class UploadDetailPageV2 extends StatelessWidget {
           children: [
             _buildSectionTitle("基本信息"),
             _buildInfoRow("药材名称", data.herb.name),
-            _buildInfoRow("学名", data.herb.scientificName),
-            _buildInfoRow("描述", data.herb.description, isLongText: true),
             _buildInfoRow("上传者", data.herb.uploaderName ?? '匿名用户'),
+            // 依据新接口，其他详细信息可能为空，可以根据需要决定是否显示
+            if (data.herb.scientificName.isNotEmpty)
+              _buildInfoRow("学名", data.herb.scientificName),
+            if (data.herb.description.isNotEmpty)
+              _buildInfoRow("描述", data.herb.description, isLongText: true),
+
 
             SizedBox(height: 16.h),
             _buildSectionTitle("地理位置"),
-            ...data.locations.map((loc) => Card(
-              margin: EdgeInsets.only(bottom: 10.h),
-              child: Padding(
-                padding: const EdgeInsets.all(8.0),
-                child: Column(
-                  children: [
-                    _buildInfoRow("地址", "${loc.province} ${loc.city} ${loc.address}"),
-                    _buildInfoRow("经纬度", "${loc.longitude}, ${loc.latitude}"),
-                    _buildInfoRow("观测年份", loc.observationYear.toString()),
-                  ],
+            // 地理位置信息现在只有一个
+            if (data.locations.isNotEmpty)
+              Card(
+                margin: EdgeInsets.only(bottom: 10.h),
+                child: Padding(
+                  padding: const EdgeInsets.all(8.0),
+                  child: Column(
+                    children: [
+                      _buildInfoRow("地址", "${data.locations.first.province} ${data.locations.first.city} ${data.locations.first.address}"),
+                      _buildInfoRow("经纬度", "${data.locations.first.longitude}, ${data.locations.first.latitude}"),
+                      _buildInfoRow("观测年份", data.locations.first.observationYear.toString()),
+                    ],
+                  ),
                 ),
               ),
-            )),
 
-            SizedBox(height: 16.h),
-            _buildSectionTitle("生长数据"),
-            ...data.growthData.map((growth) => Card(
-              margin: EdgeInsets.only(bottom: 10.h),
-              child: Padding(
-                padding: const EdgeInsets.all(8.0),
-                child: Column(
-                  children: [
-                    _buildInfoRow("指标", growth.metricName),
-                    _buildInfoRow("数值", "${growth.metricValue} ${growth.metricUnit}"),
-                    _buildInfoRow("记录时间", DateFormat('yyyy-MM-dd').format(growth.recordedAt)),
-                  ],
+            // ✅ *** 核心修复点 ***
+            // 在显示“生长数据”标题之前，检查 data.growthData 是否有内容
+            if (data.growthData.isNotEmpty) ...[
+              SizedBox(height: 16.h),
+              _buildSectionTitle("生长数据"),
+              // 使用 map 正确遍历 growthData 列表
+              ...data.growthData.map((growth) => Card(
+                margin: EdgeInsets.only(bottom: 10.h),
+                child: Padding(
+                  padding: const EdgeInsets.all(8.0),
+                  child: Column(
+                    children: [
+                      _buildInfoRow("指标", growth.metricName),
+                      _buildInfoRow("数值", "${growth.metricValue} ${growth.metricUnit}"),
+                      // 检查 recordedAt 是否是一个有效日期
+                      _buildInfoRow("记录时间", DateFormat('yyyy-MM-dd').format(growth.recordedAt)),
+                    ],
+                  ),
                 ),
-              ),
-            )),
+              )),
+            ],
 
             SizedBox(height: 16.h),
             _buildSectionTitle("图片信息"),
-            ...data.images.map((img) => Card(
-              margin: EdgeInsets.only(bottom: 10.h),
-              child: Padding(
-                padding: const EdgeInsets.all(8.0),
-                child: Column(
-                  children: [
-                    // ✅ 修改点: 从 Image.file 改为 Image.network
-                    Image.network( // <-- 使用 Image.network
-                      img.url,
-                      // 网络图片加载时的占位符
-                      loadingBuilder: (context, child, loadingProgress) {
-                        if (loadingProgress == null) return child;
-                        return Container(
-                            height: 150, // 给一个固定高度，避免闪烁
-                            alignment: Alignment.center,
-                            child: const CircularProgressIndicator(strokeWidth: 2)
-                        );
-                      },
-                      // 网络图片加载失败时的后备显示
-                      errorBuilder: (c,e,s) => const Icon(Icons.error, size: 40, color: Colors.red),
-                    ),
-                    SizedBox(height: 8.h),
-                    Text(img.description),
-                    if(img.isPrimary == 1)
-                      const Chip(label: Text('主图'), backgroundColor: AppColors.primaryLight),
-                  ],
+            // 图片信息也只有一个
+            if (data.images.isNotEmpty)
+              ...data.images.map((img) => Card(
+                margin: EdgeInsets.only(bottom: 10.h),
+                child: Padding(
+                  padding: const EdgeInsets.all(8.0),
+                  child: Column(
+                    children: [
+                      Image.network(
+                        img.url,
+                        loadingBuilder: (context, child, loadingProgress) {
+                          if (loadingProgress == null) return child;
+                          return Container(
+                              height: 150,
+                              alignment: Alignment.center,
+                              child: const CircularProgressIndicator(strokeWidth: 2)
+                          );
+                        },
+                        errorBuilder: (c,e,s) => const Icon(Icons.error, size: 40, color: Colors.red),
+                      ),
+                      // 新接口中没有图片描述，可以不显示或显示默认值
+                      // if (img.description.isNotEmpty) ...[
+                      //   SizedBox(height: 8.h),
+                      //   Text(img.description),
+                      // ],
+                      if(img.isPrimary == 1)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 8.0),
+                          child: const Chip(label: Text('主图'), backgroundColor: AppColors.primaryLight),
+                        ),
+                    ],
+                  ),
                 ),
-              ),
-            )),
+              )),
           ],
         ),
       ),

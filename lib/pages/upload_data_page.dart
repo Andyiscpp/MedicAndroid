@@ -113,7 +113,8 @@ class _UploadDataPageState extends State<UploadDataPage> {
   }
 
   Future<void> _loadCurrentUser() async {
-    final user = await _userService.getLoggedInUser();
+    // ✅ *** 核心修复点: 使用能从服务器获取最新信息的方法 ***
+    final user = await _userService.fetchAndSaveUserProfile();
     if (mounted) {
       setState(() {
         _currentUser = user;
@@ -123,8 +124,6 @@ class _UploadDataPageState extends State<UploadDataPage> {
 
   Future<void> _getAddressFromCoordinates(Position position) async {
     try {
-      // 调试信息
-      print('【地址解析】开始将坐标 ${position.latitude}, ${position.longitude} 转换为地址');
       List<Placemark> placemarks = await placemarkFromCoordinates(
         position.latitude,
         position.longitude,
@@ -132,7 +131,6 @@ class _UploadDataPageState extends State<UploadDataPage> {
 
       if (placemarks.isNotEmpty) {
         final Placemark place = placemarks.first;
-        print('【地址解析】成功，获取到地址信息: $place');
         if (mounted) {
           setState(() {
             _provinceController.text = place.administrativeArea ?? '';
@@ -142,29 +140,23 @@ class _UploadDataPageState extends State<UploadDataPage> {
           showToast('地址解析成功！');
         }
       } else {
-        print('【地址解析】错误: 返回的地址列表为空');
         showToast('无法将坐标解析为地址信息');
       }
     } catch (e) {
-      print('【地址解析】捕获到错误: $e');
       showToast('地址解析失败，您的手机可能不支持此功能。错误: $e');
     }
   }
 
-  /// ✅ **核心修正部分**: 定位逻辑
   void _getCurrentLocation() async {
-    print('【定位调试】开始执行 _getCurrentLocation 方法...');
     bool serviceEnabled;
     LocationPermission permission;
 
-    // 1. 检查定位服务是否开启
     serviceEnabled = await Geolocator.isLocationServiceEnabled();
     if (!serviceEnabled) {
       showToast('定位服务已禁用，请在系统设置中开启');
       return;
     }
 
-    // 2. 检查并请求定位权限
     permission = await Geolocator.checkPermission();
     if (permission == LocationPermission.denied) {
       permission = await Geolocator.requestPermission();
@@ -176,24 +168,17 @@ class _UploadDataPageState extends State<UploadDataPage> {
 
     if (permission == LocationPermission.deniedForever) {
       showToast('定位权限已被永久拒绝，请在应用设置中手动开启');
-      // 引导用户去设置页
       Geolocator.openAppSettings();
       return;
     }
 
-    // 3. 获取位置
     try {
       showToast('正在获取高精度位置，请稍候...');
       final position = await Geolocator.getCurrentPosition(
         desiredAccuracy: LocationAccuracy.high,
         timeLimit: const Duration(seconds: 20),
-        // ✅ **【关键修改】**
-        // 强制使用手机自带的原生定位服务，而不是谷歌定位服务。
-        // 这解决了在国内无谷歌服务手机上无法定位的问题。
         forceAndroidLocationManager: true,
       );
-
-      print('【定位调试】成功获取到位置: $position');
 
       if (mounted) {
         setState(() {
@@ -204,14 +189,11 @@ class _UploadDataPageState extends State<UploadDataPage> {
         await _getAddressFromCoordinates(position);
       }
 
-    } on TimeoutException catch (e) {
-      print('【定位调试】捕获到 TimeoutException: $e');
+    } on TimeoutException {
       showToast('获取位置超时，请尝试到室外开阔地带重试');
     } on PlatformException catch (e) {
-      print('【定位调试】捕获到 PlatformException: Code=${e.code}, Message=${e.message}');
       showToast('获取位置失败，平台错误: ${e.message}');
     } catch (e) {
-      print('【定位调试】捕获到未知错误: $e');
       showToast('获取位置时发生未知错误，请查看控制台日志');
     }
   }
@@ -229,7 +211,6 @@ class _UploadDataPageState extends State<UploadDataPage> {
     showToast('正在处理，请稍候...', duration: const Duration(seconds: 30));
 
     try {
-      // 流程 1: 获取药材ID (如果不存在则会先创建)
       final herbId = await _ossService.getOrCreateHerbId(
         name: _nameController.text,
         scientificName: _scientificNameController.text,
@@ -239,7 +220,6 @@ class _UploadDataPageState extends State<UploadDataPage> {
         return;
       }
 
-      // 流程 2: 获取OSS上传策略，并上传所有图片
       final policy = await _ossService.getOssPolicy();
       if (policy == null) {
         showToast('获取上传许可失败');
@@ -302,51 +282,25 @@ class _UploadDataPageState extends State<UploadDataPage> {
 
       if (success) {
         showToast('数据已成功提交！', duration: const Duration(seconds: 4));
-
-        final List<ImageData> localImages = [];
-        for (int i = 0; i < finalImageUrls.length; i++) {
-          localImages.add(ImageData(
-              url: finalImageUrls[i],
-              isPrimary: i == _primaryImageIndex ? 1 : 0,
-              description: _imageDescController.text));
-        }
-        final localLocation = Location(
-          herbId: herbId,
-          id: locationId,
-          longitude: double.tryParse(_longitudeController.text) ?? 0.0,
-          latitude: double.tryParse(_latitudeController.text) ?? 0.0,
-          province: _provinceController.text,
-          city: _cityController.text,
-          address: _addressController.text,
-          observationYear: int.tryParse(_observationYearController.text) ?? DateTime.now().year,
-        );
-        final localHerb = Herb(
-          id: herbId,
-          name: _nameController.text,
-          scientificName: _scientificNameController.text,
-          description: _herbDescController.text,
-          uploaderName: _currentUser?.nickname,
-        );
-        final List<GrowthData> localGrowth = [];
-        if (growthDataPayload != null) {
-          localGrowth.add(GrowthData(
-            metricName: growthDataPayload['metricName'],
-            metricValue: growthDataPayload['metricValue'],
-            metricUnit: growthDataPayload['metricUnit'],
-            recordedAt: DateTime.parse(growthDataPayload['recordedAt']),
-          ));
-        }
-
-        final newLocalData = MedicinalData(
-          herb: localHerb,
-          locations: [localLocation],
-          images: localImages,
-          growthData: localGrowth,
-        );
-        await _medicinalDataService.addDataToLocalCache(newLocalData);
-
         if (mounted) {
-          Navigator.of(context).pop(true);
+          // 清空表单
+          _formKey.currentState?.reset();
+          _nameController.clear();
+          _scientificNameController.clear();
+          _herbDescController.clear();
+          _longitudeController.clear();
+          _latitudeController.clear();
+          _provinceController.clear();
+          _cityController.clear();
+          _addressController.clear();
+          _metricValueController.clear();
+          _imageDescController.clear();
+          setState(() {
+            _selectedImages.clear();
+            _primaryImageIndex = 0;
+            _selectedMetricName = null;
+            _selectedMetricUnit = null;
+          });
         }
       } else {
         showToast('最终数据保存失败');
@@ -392,22 +346,9 @@ class _UploadDataPageState extends State<UploadDataPage> {
   // --- UI 构建方法 ---
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: AppColors.background,
-      appBar: AppBar(
-        backgroundColor: AppColors.background,
-        elevation: 0,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios_new, color: AppColors.textPrimary),
-          onPressed: () => Navigator.of(context).pop(),
-        ),
-        title: const Text(
-          '上传药材数据',
-          style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.bold),
-        ),
-        centerTitle: true,
-      ),
-      body: GestureDetector(
+    return Container(
+      color: AppColors.background,
+      child: GestureDetector(
         onTap: () => FocusScope.of(context).unfocus(),
         child: SingleChildScrollView(
           padding: EdgeInsets.symmetric(horizontal: 16.w, vertical: 10.h),
@@ -577,7 +518,8 @@ class _UploadDataPageState extends State<UploadDataPage> {
           children: [
             Text('上传者', style: TextStyle(fontSize: 16.sp, color: AppColors.textSecondary)),
             Text(
-              _currentUser?.nickname ?? '加载中...',
+              // ✅ 使用 displayName getter 来确保优先显示昵称
+              _currentUser?.displayName ?? '加载中...',
               style: TextStyle(fontSize: 16.sp, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
             ),
           ],
