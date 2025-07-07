@@ -5,10 +5,10 @@ import 'dart:io';
 
 import 'package:demo_conut/data/models/medicinal_data.dart';
 import 'package:demo_conut/data/models/user.dart';
-import 'package:demo_conut/services/medicinal_data_service.dart';
 import 'package:demo_conut/services/oss_service.dart';
 import 'package:demo_conut/services/user_service.dart';
 import 'package:demo_conut/pages/home_page.dart';
+import 'package:dotted_border/dotted_border.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
@@ -19,19 +19,29 @@ import 'package:intl/intl.dart';
 import 'package:oktoast/oktoast.dart';
 
 class UploadDataPage extends StatefulWidget {
-  const UploadDataPage({super.key});
+  final VoidCallback onUploadSuccess;
+
+  const UploadDataPage({
+    super.key,
+    required this.onUploadSuccess,
+  });
 
   @override
   _UploadDataPageState createState() => _UploadDataPageState();
 }
 
 class _UploadDataPageState extends State<UploadDataPage> {
-  final _formKey = GlobalKey<FormState>();
+  // Stepper and Form Keys
+  int _currentStep = 0;
+  final _formKeyStep1 = GlobalKey<FormState>();
+  final _formKeyStep2 = GlobalKey<FormState>();
+  final _formKeyStep3 = GlobalKey<FormState>();
+
+  // Services
   final UserService _userService = UserService();
   final OssService _ossService = OssService();
-  final MedicinalDataService _medicinalDataService = MedicinalDataService();
 
-  // 所有文本输入控制器
+  // Controllers
   final _nameController = TextEditingController();
   final _scientificNameController = TextEditingController();
   final _herbDescController = TextEditingController();
@@ -44,34 +54,30 @@ class _UploadDataPageState extends State<UploadDataPage> {
   final _metricValueController = TextEditingController();
   final _imageDescController = TextEditingController();
 
-  // 防抖计时器和搜索状态
+  // State Variables
   Timer? _debounce;
-  bool _isSearching = false;
-
-  // 生长数据相关的状态
-  final Map<String, String> _metricUnitMap = {
-    '预估产量': '公斤',
-    '土壤PH值': '',
-    '含糖量': '%',
-    '平均株高': '厘米',
-  };
-  late final List<String> _metricNames;
-  late final List<String> _metricUnits;
-  String? _selectedMetricName;
-  String? _selectedMetricUnit;
-
-  // 用户、图片选择等状态
+  bool _isSearchingHerb = false;
+  bool _isSubmitting = false;
   User? _currentUser;
   final ImagePicker _picker = ImagePicker();
   final List<XFile> _selectedImages = [];
   int _primaryImageIndex = 0;
+
+  // Growth Data related
+  final Map<String, String> _metricUnitMap = {
+    '预估产量': '公斤',
+    '土壤PH值': '', // No unit
+    '含糖量': '%',
+    '平均株高': '厘米',
+  };
+  late final List<String> _metricNames;
+  String? _selectedMetricName;
 
   @override
   void initState() {
     super.initState();
     _nameController.addListener(_onHerbNameChanged);
     _metricNames = _metricUnitMap.keys.toList();
-    _metricUnits = _metricUnitMap.values.toSet().toList();
     _observationYearController.text = DateTime.now().year.toString();
     _loadCurrentUser();
   }
@@ -80,6 +86,7 @@ class _UploadDataPageState extends State<UploadDataPage> {
   void dispose() {
     _nameController.removeListener(_onHerbNameChanged);
     _debounce?.cancel();
+    // Dispose all controllers
     _nameController.dispose();
     _scientificNameController.dispose();
     _herbDescController.dispose();
@@ -94,57 +101,32 @@ class _UploadDataPageState extends State<UploadDataPage> {
     super.dispose();
   }
 
+  // --- Core Logic Methods ---
+
+  Future<void> _loadCurrentUser() async {
+    final user = await _userService.fetchAndSaveUserProfile();
+    if (mounted) {
+      setState(() => _currentUser = user);
+    }
+  }
+
   void _onHerbNameChanged() {
     if (_debounce?.isActive ?? false) _debounce!.cancel();
     if (_nameController.text.trim().isEmpty) {
-      if (mounted) setState(() => _isSearching = false);
+      if (mounted) setState(() => _isSearchingHerb = false);
       return;
     }
     _debounce = Timer(const Duration(milliseconds: 500), () async {
-      if (mounted) setState(() => _isSearching = true);
+      if (mounted) setState(() => _isSearchingHerb = true);
       final Herb? foundHerb = await _ossService.searchHerbByName(_nameController.text);
-      if (mounted) setState(() => _isSearching = false);
+      if (mounted) setState(() => _isSearchingHerb = false);
       if (foundHerb != null && mounted) {
         setState(() {
           _scientificNameController.text = foundHerb.scientificName;
+          _herbDescController.text = foundHerb.description;
         });
       }
     });
-  }
-
-  Future<void> _loadCurrentUser() async {
-    // ✅ *** 核心修复点: 使用能从服务器获取最新信息的方法 ***
-    final user = await _userService.fetchAndSaveUserProfile();
-    if (mounted) {
-      setState(() {
-        _currentUser = user;
-      });
-    }
-  }
-
-  Future<void> _getAddressFromCoordinates(Position position) async {
-    try {
-      List<Placemark> placemarks = await placemarkFromCoordinates(
-        position.latitude,
-        position.longitude,
-      );
-
-      if (placemarks.isNotEmpty) {
-        final Placemark place = placemarks.first;
-        if (mounted) {
-          setState(() {
-            _provinceController.text = place.administrativeArea ?? '';
-            _cityController.text = place.locality ?? '';
-            _addressController.text = '${place.street ?? ''} ${place.name ?? ''}'.trim();
-          });
-          showToast('地址解析成功！');
-        }
-      } else {
-        showToast('无法将坐标解析为地址信息');
-      }
-    } catch (e) {
-      showToast('地址解析失败，您的手机可能不支持此功能。错误: $e');
-    }
   }
 
   void _getCurrentLocation() async {
@@ -168,18 +150,16 @@ class _UploadDataPageState extends State<UploadDataPage> {
 
     if (permission == LocationPermission.deniedForever) {
       showToast('定位权限已被永久拒绝，请在应用设置中手动开启');
-      Geolocator.openAppSettings();
+      await Geolocator.openAppSettings();
       return;
     }
 
     try {
-      showToast('正在获取高精度位置，请稍候...');
+      showToast('正在获取高精度位置...');
       final position = await Geolocator.getCurrentPosition(
         desiredAccuracy: LocationAccuracy.high,
-        timeLimit: const Duration(seconds: 20),
         forceAndroidLocationManager: true,
       );
-
       if (mounted) {
         setState(() {
           _longitudeController.text = position.longitude.toStringAsFixed(6);
@@ -188,125 +168,27 @@ class _UploadDataPageState extends State<UploadDataPage> {
         showToast('位置获取成功！正在解析地址...');
         await _getAddressFromCoordinates(position);
       }
-
-    } on TimeoutException {
-      showToast('获取位置超时，请尝试到室外开阔地带重试');
-    } on PlatformException catch (e) {
-      showToast('获取位置失败，平台错误: ${e.message}');
     } catch (e) {
-      showToast('获取位置时发生未知错误，请查看控制台日志');
+      showToast('获取位置失败: $e');
     }
   }
 
-  void _submitForm() async {
-    if (!_formKey.currentState!.validate()) {
-      showToast('请检查所有必填项');
-      return;
-    }
-    if (_selectedImages.isEmpty) {
-      showToast('请至少上传一张图片');
-      return;
-    }
-
-    showToast('正在处理，请稍候...', duration: const Duration(seconds: 30));
-
+  Future<void> _getAddressFromCoordinates(Position position) async {
     try {
-      final herbId = await _ossService.getOrCreateHerbId(
-        name: _nameController.text,
-        scientificName: _scientificNameController.text,
-      );
-      if (herbId == null) {
-        showToast('获取或创建药材ID失败');
-        return;
-      }
-
-      final policy = await _ossService.getOssPolicy();
-      if (policy == null) {
-        showToast('获取上传许可失败');
-        return;
-      }
-      final List<Future<String?>> uploadTasks = _selectedImages
-          .map((xfile) => _ossService.uploadFileToOss(file: File(xfile.path), policy: policy))
-          .toList();
-      final List<String?> uploadedImageUrls = await Future.wait(uploadTasks);
-      if (uploadedImageUrls.any((url) => url == null)) {
-        showToast('部分图片上传失败，请重试');
-        return;
-      }
-      final List<String> finalImageUrls = uploadedImageUrls.whereType<String>().toList();
-
-      final Map<String, dynamic>? growthDataPayload;
-      if (_selectedMetricName != null && _metricValueController.text.isNotEmpty) {
-        growthDataPayload = {
-          "metricName": _selectedMetricName,
-          "metricValue": _metricValueController.text,
-          "metricUnit": _selectedMetricUnit ?? '',
-          "recordedAt": DateTime.now().toIso8601String(),
-        };
-      } else {
-        growthDataPayload = null;
-      }
-
-      final locationData = {
-        "herbId": herbId,
-        "longitude": double.tryParse(_longitudeController.text) ?? 0.0,
-        "latitude": double.tryParse(_latitudeController.text) ?? 0.0,
-        "province": _provinceController.text,
-        "city": _cityController.text,
-        "address": _addressController.text,
-        "observationYear": int.tryParse(_observationYearController.text) ?? DateTime.now().year,
-        "description": _herbDescController.text,
-        "uploaderName": _currentUser?.nickname ?? '匿名用户',
-        "uploadedAt": DateTime.now().toIso8601String(),
-        "growthData": growthDataPayload,
-      };
-
-      final locationId = await _ossService.createLocation(locationData);
-      if (locationId == null) {
-        showToast('创建观测点及生长数据失败');
-        return;
-      }
-
-      final List<Map<String, dynamic>> imagesMetadata = [];
-      for (int i = 0; i < finalImageUrls.length; i++) {
-        imagesMetadata.add({
-          "url": finalImageUrls[i],
-          "isPrimary": i == _primaryImageIndex,
-          "description": _imageDescController.text,
-        });
-      }
-      final success = await _ossService.saveImagesForLocation(
-        locationId: locationId,
-        images: imagesMetadata,
-      );
-
-      if (success) {
-        showToast('数据已成功提交！', duration: const Duration(seconds: 4));
+      List<Placemark> placemarks = await placemarkFromCoordinates(position.latitude, position.longitude);
+      if (placemarks.isNotEmpty) {
+        final Placemark place = placemarks.first;
         if (mounted) {
-          // 清空表单
-          _formKey.currentState?.reset();
-          _nameController.clear();
-          _scientificNameController.clear();
-          _herbDescController.clear();
-          _longitudeController.clear();
-          _latitudeController.clear();
-          _provinceController.clear();
-          _cityController.clear();
-          _addressController.clear();
-          _metricValueController.clear();
-          _imageDescController.clear();
           setState(() {
-            _selectedImages.clear();
-            _primaryImageIndex = 0;
-            _selectedMetricName = null;
-            _selectedMetricUnit = null;
+            _provinceController.text = place.administrativeArea ?? '';
+            _cityController.text = place.locality ?? '';
+            _addressController.text = '${place.street ?? ''} ${place.name ?? ''}'.trim();
           });
+          showToast('地址解析成功！');
         }
-      } else {
-        showToast('最终数据保存失败');
       }
     } catch (e) {
-      showToast('上传过程中发生未知错误: $e');
+      showToast('地址解析失败: $e');
     }
   }
 
@@ -320,8 +202,7 @@ class _UploadDataPageState extends State<UploadDataPage> {
       final List<XFile> pickedFiles = await _picker.pickMultiImage(imageQuality: 85);
       if (pickedFiles.isNotEmpty) {
         setState(() {
-          _selectedImages.addAll(
-              pickedFiles.length > maxImages ? pickedFiles.sublist(0, maxImages) : pickedFiles);
+          _selectedImages.addAll(pickedFiles.length > maxImages ? pickedFiles.sublist(0, maxImages) : pickedFiles);
           if (_selectedImages.isNotEmpty && _primaryImageIndex >= _selectedImages.length) {
             _primaryImageIndex = 0;
           }
@@ -343,277 +224,437 @@ class _UploadDataPageState extends State<UploadDataPage> {
     });
   }
 
-  // --- UI 构建方法 ---
+  // ✅ *** 核心修改点 2: 创建一个重置表单的方法 ***
+  void _resetForm() {
+    // Clear all text controllers
+    _nameController.clear();
+    _scientificNameController.clear();
+    _herbDescController.clear();
+    _longitudeController.clear();
+    _latitudeController.clear();
+    _provinceController.clear();
+    _cityController.clear();
+    _addressController.clear();
+    _metricValueController.clear();
+    _imageDescController.clear();
+
+    // Reset state variables in setState
+    setState(() {
+      _selectedImages.clear();
+      _primaryImageIndex = 0;
+      _selectedMetricName = null;
+      _currentStep = 0;
+      _isSubmitting = false;
+    });
+  }
+
+  void _submitForm() async {
+    // Validate all steps
+    if (!_formKeyStep1.currentState!.validate() ||
+        !_formKeyStep2.currentState!.validate() ||
+        !_formKeyStep3.currentState!.validate()) {
+      showToast('请检查所有必填项');
+      return;
+    }
+    if (_selectedImages.isEmpty) {
+      showToast('请至少上传一张图片');
+      return;
+    }
+
+    setState(() => _isSubmitting = true);
+
+    try {
+      final herbId = await _ossService.getOrCreateHerbId(
+        name: _nameController.text,
+        scientificName: _scientificNameController.text,
+      );
+      if (herbId == null) throw Exception('获取或创建药材ID失败');
+
+      final policy = await _ossService.getOssPolicy();
+      if (policy == null) throw Exception('获取上传许可失败');
+
+      final List<Future<String?>> uploadTasks =
+      _selectedImages.map((xfile) => _ossService.uploadFileToOss(file: File(xfile.path), policy: policy)).toList();
+      final List<String?> uploadedImageUrls = await Future.wait(uploadTasks);
+      if (uploadedImageUrls.any((url) => url == null)) throw Exception('部分图片上传失败，请重试');
+
+      final List<String> finalImageUrls = uploadedImageUrls.whereType<String>().toList();
+
+      final locationData = {
+        "herbId": herbId,
+        "longitude": double.tryParse(_longitudeController.text) ?? 0.0,
+        "latitude": double.tryParse(_latitudeController.text) ?? 0.0,
+        "province": _provinceController.text,
+        "city": _cityController.text,
+        "address": _addressController.text,
+        "observationYear": int.tryParse(_observationYearController.text) ?? DateTime.now().year,
+        "description": _herbDescController.text,
+        "uploaderName": _currentUser?.displayName ?? '匿名用户',
+        "uploadedAt": DateTime.now().toIso8601String(),
+        if (_selectedMetricName != null && _metricValueController.text.isNotEmpty)
+          "growthData": {
+            "metricName": _selectedMetricName,
+            "metricValue": _metricValueController.text,
+            "metricUnit": _metricUnitMap[_selectedMetricName] ?? '',
+            "recordedAt": DateTime.now().toIso8601String(),
+          },
+      };
+
+      final locationId = await _ossService.createLocation(locationData);
+      if (locationId == null) throw Exception('创建观测点失败');
+
+      final List<Map<String, dynamic>> imagesMetadata = [];
+      for (int i = 0; i < finalImageUrls.length; i++) {
+        imagesMetadata.add({
+          "url": finalImageUrls[i],
+          "isPrimary": i == _primaryImageIndex,
+          "description": _imageDescController.text,
+        });
+      }
+      final success = await _ossService.saveImagesForLocation(locationId: locationId, images: imagesMetadata);
+      if (!success) throw Exception('最终数据保存失败');
+
+      showToast('数据已成功提交！', duration: const Duration(seconds: 3));
+      if (mounted) {
+        widget.onUploadSuccess();
+        _resetForm(); // ✅ 在成功回调后调用重置方法
+      }
+    } catch (e) {
+      showToast('上传失败: ${e.toString().replaceAll("Exception: ", "")}');
+      // Only set isSubmitting to false on failure, success will reset it.
+      if (mounted) {
+        setState(() => _isSubmitting = false);
+      }
+    }
+    // No finally block needed, as success path now handles the reset.
+  }
+
+  // --- UI Build Methods ---
+
   @override
   Widget build(BuildContext context) {
-    return Container(
-      color: AppColors.background,
-      child: GestureDetector(
+    return Scaffold(
+      backgroundColor: AppColors.background,
+      body: GestureDetector(
         onTap: () => FocusScope.of(context).unfocus(),
-        child: SingleChildScrollView(
-          padding: EdgeInsets.symmetric(horizontal: 16.w, vertical: 10.h),
-          child: Form(
-            key: _formKey,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                _buildSectionCard(
-                  title: '上传信息',
-                  icon: Icons.person_pin_circle_outlined,
-                  child: _buildUploaderInfoSection(),
-                ),
-                SizedBox(height: 16.h),
-                _buildSectionCard(
-                  title: '药材信息 (Herb)',
-                  icon: Icons.grass_outlined,
-                  child: Column(
-                    children: [
-                      _buildTextFormField(
-                        _nameController,
-                        '名称',
-                        '例如：黄芪',
-                        suffixIcon: _isSearching
-                            ? const Padding(
-                          padding: EdgeInsets.all(12.0),
-                          child: SizedBox(
-                              width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)),
-                        )
-                            : null,
-                      ),
-                      SizedBox(height: 16.h),
-                      _buildTextFormField(_scientificNameController, '学名 (将自动填充)', '例如：Astragalus membranaceus',
-                          isRequired: false),
-                      SizedBox(height: 16.h),
-                      _buildTextFormField(_herbDescController, '描述', '功效、性状等', maxLines: 3, isRequired: false),
-                    ],
-                  ),
-                ),
-                SizedBox(height: 16.h),
-                _buildSectionCard(
-                  title: '图片信息 (Image)',
-                  icon: Icons.image_outlined,
-                  child: Column(
-                    children: [
-                      _buildImagePickerSection(),
-                      SizedBox(height: 16.h),
-                      _buildTextFormField(_imageDescController, '图片描述', '例如：黄芪植株全株图（适用于所有图片）',
-                          isRequired: false),
-                    ],
-                  ),
-                ),
-                SizedBox(height: 16.h),
-                _buildSectionCard(
-                  title: '地理位置 (Location)',
-                  icon: Icons.location_on_outlined,
-                  child: Column(
-                    children: [
-                      _buildTextFormField(_provinceController, '省份', '例如：内蒙古自治区'),
-                      SizedBox(height: 16.h),
-                      _buildTextFormField(_cityController, '城市', '例如：呼和浩特市'),
-                      SizedBox(height: 16.h),
-                      _buildTextFormField(_addressController, '详细地址', '例如：武川县黄芪种植基地'),
-                      SizedBox(height: 16.h),
-                      Row(
-                        children: [
-                          Expanded(child: _buildTextFormField(_longitudeController, '经度', '例如：116.40', keyboardType: TextInputType.number)),
-                          SizedBox(width: 16.w),
-                          Expanded(child: _buildTextFormField(_latitudeController, '纬度', '例如：39.91', keyboardType: TextInputType.number)),
-                          Padding(
-                            padding: EdgeInsets.only(left: 8.w),
-                            child: IconButton(
-                              icon: const Icon(Icons.my_location, color: AppColors.primary),
-                              tooltip: '自动获取当前位置',
-                              onPressed: _getCurrentLocation,
-                            ),
-                          ),
-                        ],
-                      ),
-                      SizedBox(height: 16.h),
-                      _buildTextFormField(_observationYearController, '观测年份', '例如：2024',
-                          keyboardType: TextInputType.number, isEnabled: false),
-                    ],
-                  ),
-                ),
-                SizedBox(height: 16.h),
-                _buildSectionCard(
-                  title: '生长数据 (Growth Data)',
-                  icon: Icons.eco_outlined,
-                  child: Column(
-                    children: [
-                      DropdownButtonFormField<String>(
-                        value: _selectedMetricName,
-                        decoration: _inputDecoration('指标名称'),
-                        items: _metricNames
-                            .map((e) => DropdownMenuItem(value: e, child: Text(e)))
-                            .toList(),
-                        onChanged: (value) {
-                          if (value == null) return;
-                          setState(() {
-                            _selectedMetricName = value;
-                            _selectedMetricUnit = _metricUnitMap[value];
-                          });
-                        },
-                      ),
-                      SizedBox(height: 16.h),
-                      _buildTextFormField(_metricValueController, '指标值', '例如：500',
-                          keyboardType: TextInputType.number, isRequired: false),
-                      SizedBox(height: 16.h),
-                      DropdownButtonFormField<String>(
-                        value: _selectedMetricUnit,
-                        decoration: _inputDecoration('指标单位'),
-                        items: _metricUnits
-                            .map((e) => DropdownMenuItem(value: e, child: Text(e.isEmpty ? "无" : e)))
-                            .toList(),
-                        onChanged: (value) {
-                          setState(() => _selectedMetricUnit = value);
-                        },
-                      ),
-                    ],
-                  ),
-                ),
-                SizedBox(height: 30.h),
-                _buildSubmitButton(),
-                SizedBox(height: 20.h),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
+        child: Stepper(
+          type: StepperType.horizontal,
+          currentStep: _currentStep,
+          onStepTapped: (step) => setState(() => _currentStep = step),
+          onStepContinue: () {
+            // Validate current step before proceeding
+            bool isStepValid = false;
+            if (_currentStep == 0) {
+              isStepValid = _formKeyStep1.currentState!.validate();
+            } else if (_currentStep == 1) {
+              isStepValid = _formKeyStep2.currentState!.validate();
+            } else {
+              isStepValid = true; // Last step
+            }
 
-  Widget _buildSectionCard({required String title, required IconData icon, required Widget child}) {
-    return Card(
-      elevation: 2,
-      shadowColor: AppColors.primary.withOpacity(0.08),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12.r)),
-      child: Padding(
-        padding: EdgeInsets.all(16.w),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Icon(icon, color: AppColors.primary, size: 20.sp),
-                SizedBox(width: 8.w),
-                Text(
-                  title,
-                  style: TextStyle(fontSize: 17.sp, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
-                ),
-              ],
+            if (isStepValid) {
+              if (_currentStep < 2) {
+                setState(() => _currentStep += 1);
+              } else {
+                _submitForm();
+              }
+            }
+          },
+          onStepCancel: () {
+            if (_currentStep > 0) {
+              setState(() => _currentStep -= 1);
+            }
+          },
+          controlsBuilder: (context, details) {
+            return _buildControls(context, details);
+          },
+          steps: [
+            _buildStep(
+              title: '药材信息',
+              content: _buildStep1HerbInfo(),
+              isActive: _currentStep >= 0,
+              formKey: _formKeyStep1,
             ),
-            const Divider(height: 24, thickness: 1),
-            child,
+            _buildStep(
+              title: '观测点详情',
+              content: _buildStep2LocationInfo(),
+              isActive: _currentStep >= 1,
+              formKey: _formKeyStep2,
+            ),
+            _buildStep(
+              title: '生长与图片',
+              content: _buildStep3MediaInfo(),
+              isActive: _currentStep >= 2,
+              formKey: _formKeyStep3,
+            ),
           ],
         ),
       ),
     );
   }
 
-  Widget _buildUploaderInfoSection() {
+  Step _buildStep({
+    required String title,
+    required Widget content,
+    required bool isActive,
+    required GlobalKey<FormState> formKey,
+  }) {
+    return Step(
+      title: Text(title),
+      content: Form(key: formKey, child: content),
+      isActive: isActive,
+      state: isActive ? StepState.editing : StepState.indexed,
+    );
+  }
+
+  Widget _buildControls(BuildContext context, ControlsDetails details) {
+    return Padding(
+      padding: EdgeInsets.only(top: 20.h),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.end,
+        children: <Widget>[
+          if (_currentStep > 0)
+            TextButton(
+              onPressed: details.onStepCancel,
+              child: const Text('上一步'),
+            ),
+          SizedBox(width: 12.w),
+          ElevatedButton(
+            onPressed: _isSubmitting ? null : details.onStepContinue, // Disable button while submitting
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.primary,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8.r)),
+            ),
+            child: _isSubmitting
+                ? SizedBox(
+              width: 20.w,
+              height: 20.h,
+              child: const CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+            )
+                : Text(_currentStep == 2 ? '确认上传' : '下一步'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // --- Step Content Builders ---
+
+  Widget _buildStep1HerbInfo() {
     return Column(
       children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Text('上传者', style: TextStyle(fontSize: 16.sp, color: AppColors.textSecondary)),
-            Text(
-              // ✅ 使用 displayName getter 来确保优先显示昵称
-              _currentUser?.displayName ?? '加载中...',
-              style: TextStyle(fontSize: 16.sp, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
-            ),
-          ],
+        _buildTextFormField(
+          controller: _nameController,
+          label: '药材名称',
+          hint: '例如：黄芪',
+          icon: Icons.grass_outlined,
+          suffixIcon: _isSearchingHerb
+              ? const Padding(
+            padding: EdgeInsets.all(12.0),
+            child: SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)),
+          )
+              : null,
         ),
-        SizedBox(height: 12.h),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Text('上传时间', style: TextStyle(fontSize: 16.sp, color: AppColors.textSecondary)),
-            Text(
-              DateFormat('yyyy年MM月dd日 HH:mm').format(DateTime.now()),
-              style: TextStyle(fontSize: 16.sp, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
-            ),
-          ],
-        )
+        SizedBox(height: 16.h),
+        _buildTextFormField(
+          controller: _scientificNameController,
+          label: '学名 (可自动填充)',
+          hint: '例如：Astragalus membranaceus',
+          icon: Icons.science_outlined,
+          isRequired: false,
+        ),
+        SizedBox(height: 16.h),
+        _buildTextFormField(
+          controller: _herbDescController,
+          label: '描述 (可自动填充)',
+          hint: '功效、性状等',
+          icon: Icons.description_outlined,
+          maxLines: 3,
+          isRequired: false,
+        ),
       ],
     );
   }
 
-  Widget _buildTextFormField(TextEditingController controller, String label, String hint,
-      {int maxLines = 1,
+  Widget _buildStep2LocationInfo() {
+    return Column(
+      children: [
+        _buildTextFormField(
+          controller: _provinceController,
+          label: '省份',
+          hint: '例如：内蒙古自治区',
+          icon: Icons.map_outlined,
+        ),
+        SizedBox(height: 16.h),
+        _buildTextFormField(
+          controller: _cityController,
+          label: '城市',
+          hint: '例如：呼和浩特市',
+          icon: Icons.location_city_outlined,
+        ),
+        SizedBox(height: 16.h),
+        _buildTextFormField(
+          controller: _addressController,
+          label: '详细地址',
+          hint: '例如：武川县黄芪种植基地',
+          icon: Icons.home_work_outlined,
+        ),
+        SizedBox(height: 16.h),
+        Row(
+          children: [
+            Expanded(
+                child: _buildTextFormField(
+                    controller: _longitudeController,
+                    label: '经度',
+                    icon: Icons.explore_outlined,
+                    keyboardType: TextInputType.number)),
+            SizedBox(width: 16.w),
+            Expanded(
+                child: _buildTextFormField(
+                    controller: _latitudeController,
+                    label: '纬度',
+                    icon: Icons.explore_outlined,
+                    keyboardType: TextInputType.number)),
+          ],
+        ),
+        SizedBox(height: 10.h),
+        ElevatedButton.icon(
+          icon: const Icon(Icons.my_location, size: 18),
+          label: const Text('自动获取位置与地址'),
+          onPressed: _getCurrentLocation,
+          style: ElevatedButton.styleFrom(
+            backgroundColor: AppColors.primaryLight,
+            foregroundColor: AppColors.primary,
+            elevation: 0,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8.r)),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildStep3MediaInfo() {
+    // ✅ *** 核心修改点 1: 获取当前选择的单位 ***
+    final String currentUnit = _selectedMetricName != null ? (_metricUnitMap[_selectedMetricName] ?? '') : '';
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('上传图片 (至少一张)', style: TextStyle(color: AppColors.textSecondary, fontSize: 14.sp)),
+        SizedBox(height: 8.h),
+        _buildImagePickerSection(),
+        SizedBox(height: 24.h),
+        Text('生长数据 (选填)', style: TextStyle(color: AppColors.textSecondary, fontSize: 14.sp)),
+        SizedBox(height: 8.h),
+        DropdownButtonFormField<String>(
+          value: _selectedMetricName,
+          decoration: _inputDecoration('指标名称', icon: Icons.eco_outlined),
+          items: _metricNames.map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
+          onChanged: (value) => setState(() => _selectedMetricName = value),
+        ),
+        SizedBox(height: 16.h),
+        _buildTextFormField(
+          controller: _metricValueController,
+          label: '指标值',
+          hint: '例如: 500',
+          icon: Icons.format_list_numbered_rtl_outlined,
+          keyboardType: TextInputType.number,
+          isRequired: false,
+          // ✅ 将获取到的单位作为后缀文本显示
+          suffixText: currentUnit.isNotEmpty ? currentUnit : null,
+        ),
+      ],
+    );
+  }
+
+  // --- Helper UI Widgets ---
+
+  Widget _buildTextFormField(
+      {required TextEditingController controller,
+        required String label,
+        String? hint,
+        IconData? icon,
+        int maxLines = 1,
         TextInputType? keyboardType,
         bool isRequired = true,
-        bool isEnabled = true,
-        Widget? suffixIcon}) {
+        Widget? suffixIcon,
+        String? suffixText}) { // ✅ 添加 suffixText 参数
     return TextFormField(
       controller: controller,
       maxLines: maxLines,
       keyboardType: keyboardType,
-      enabled: isEnabled,
-      decoration: _inputDecoration(label, hint: hint, suffixIcon: suffixIcon, isEnabled: isEnabled),
+      decoration: _inputDecoration(label, hint: hint, icon: icon, suffixIcon: suffixIcon, suffixText: suffixText), // ✅ 传递参数
       validator: (value) {
         if (isRequired && (value == null || value.isEmpty)) {
-          return '此项为必填项';
+          return '$label 不能为空';
         }
         return null;
       },
     );
   }
 
+  InputDecoration _inputDecoration(String label,
+      {String? hint, IconData? icon, Widget? suffixIcon, String? suffixText}) { // ✅ 添加 suffixText 参数
+    return InputDecoration(
+      labelText: label,
+      hintText: hint,
+      prefixIcon: icon != null ? Icon(icon, color: AppColors.primary) : null,
+      suffixIcon: suffixIcon,
+      suffixText: suffixText, // ✅ 使用参数
+      suffixStyle: const TextStyle(color: AppColors.textSecondary, fontWeight: FontWeight.bold), // 给单位添加样式
+      contentPadding: EdgeInsets.symmetric(vertical: 12.h, horizontal: 12.w),
+      border: OutlineInputBorder(borderRadius: BorderRadius.circular(8.r)),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(8.r),
+        borderSide: const BorderSide(color: AppColors.primary, width: 2.0),
+      ),
+    );
+  }
+
   Widget _buildImagePickerSection() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        GridView.builder(
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: 4,
-            crossAxisSpacing: 10.w,
-            mainAxisSpacing: 10.h,
-          ),
-          itemCount: _selectedImages.length + 1,
-          itemBuilder: (context, index) {
-            if (index == _selectedImages.length) {
-              return Visibility(
-                visible: _selectedImages.length < 5,
-                child: _buildAddImageButton(),
-              );
-            }
-            return _buildImageThumbnail(_selectedImages[index], index);
-          },
-        ),
-        if (_selectedImages.isEmpty)
-          Padding(
-            padding: EdgeInsets.only(top: 8.h),
-            child: Text(
-              '  请至少上传一张图片。',
-              style: TextStyle(color: Theme.of(context).colorScheme.error, fontSize: 12.sp),
-            ),
-          ),
-      ],
+    return GridView.builder(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 4,
+        crossAxisSpacing: 10.w,
+        mainAxisSpacing: 10.h,
+      ),
+      itemCount: _selectedImages.length + 1,
+      itemBuilder: (context, index) {
+        if (index == _selectedImages.length) {
+          return Visibility(
+            visible: _selectedImages.length < 5,
+            child: _buildAddImageButton(),
+          );
+        }
+        return _buildImageThumbnail(_selectedImages[index], index);
+      },
     );
   }
 
   Widget _buildAddImageButton() {
-    return GestureDetector(
+    return InkWell(
       onTap: _pickImages,
-      child: Container(
-        decoration: BoxDecoration(
-          color: AppColors.primaryLight.withOpacity(0.6),
-          borderRadius: BorderRadius.circular(8.r),
-          border: Border.all(color: AppColors.primary.withOpacity(0.3), style: BorderStyle.solid, width: 1.5),
+      borderRadius: BorderRadius.circular(8.r),
+      child: DottedBorder(
+        color: AppColors.primary.withOpacity(0.6),
+        strokeWidth: 1.5,
+        dashPattern: const [6, 4],
+        radius: Radius.circular(8.r),
+        borderType: BorderType.RRect,
+        child: const Center(
+          child: Icon(Icons.add_a_photo_outlined, color: AppColors.primary, size: 30),
         ),
-        child: const Icon(Icons.add_a_photo_outlined, color: AppColors.primary, size: 30),
       ),
     );
   }
 
   Widget _buildImageThumbnail(XFile imageFile, int index) {
+    bool isPrimary = index == _primaryImageIndex;
     return GestureDetector(
-      onTap: () {
-        setState(() => _primaryImageIndex = index);
-      },
+      onTap: () => setState(() => _primaryImageIndex = index),
       child: Stack(
         clipBehavior: Clip.none,
         children: [
@@ -621,29 +662,35 @@ class _UploadDataPageState extends State<UploadDataPage> {
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(8.r),
               border: Border.all(
-                color: _primaryImageIndex == index ? AppColors.primary : Colors.transparent,
+                color: isPrimary ? AppColors.primary : Colors.transparent,
                 width: 2.5,
               ),
-              image: DecorationImage(
-                image: FileImage(File(imageFile.path)),
-                fit: BoxFit.cover,
-              ),
+              image: DecorationImage(image: FileImage(File(imageFile.path)), fit: BoxFit.cover),
             ),
           ),
-          if (_primaryImageIndex == index)
+          if (isPrimary)
             Positioned(
-              top: -5,
-              left: -5,
+              bottom: 0,
+              left: 0,
+              right: 0,
               child: Container(
-                padding: const EdgeInsets.all(2),
-                decoration: const BoxDecoration(color: AppColors.primary, shape: BoxShape.circle),
-                child: const Icon(Icons.check, color: Colors.white, size: 12),
+                decoration: BoxDecoration(
+                  color: AppColors.primary.withOpacity(0.8),
+                  borderRadius: BorderRadius.only(
+                    bottomLeft: Radius.circular(5.r),
+                    bottomRight: Radius.circular(5.r),
+                  ),
+                ),
+                padding: EdgeInsets.symmetric(vertical: 2.h),
+                child: Text('主图',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(color: Colors.white, fontSize: 10.sp, fontWeight: FontWeight.bold)),
               ),
             ),
           Positioned(
             top: -8,
             right: -8,
-            child: GestureDetector(
+            child: InkWell(
               onTap: () => _removeImage(index),
               child: Container(
                 padding: const EdgeInsets.all(2),
@@ -654,37 +701,6 @@ class _UploadDataPageState extends State<UploadDataPage> {
           ),
         ],
       ),
-    );
-  }
-
-  Widget _buildSubmitButton() {
-    return ElevatedButton.icon(
-      icon: const Icon(Icons.cloud_upload_outlined, size: 20),
-      label: const Text('确认上传'),
-      onPressed: _submitForm,
-      style: ElevatedButton.styleFrom(
-        backgroundColor: AppColors.primary,
-        foregroundColor: Colors.white,
-        padding: EdgeInsets.symmetric(vertical: 14.h),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12.r)),
-        textStyle: TextStyle(fontSize: 18.sp, fontWeight: FontWeight.bold),
-      ),
-    );
-  }
-
-  InputDecoration _inputDecoration(String label, {String? hint, Widget? suffixIcon, bool isEnabled = true}) {
-    return InputDecoration(
-      labelText: label,
-      hintText: hint,
-      filled: !isEnabled,
-      fillColor: Colors.grey.shade200,
-      border: OutlineInputBorder(borderRadius: BorderRadius.circular(8.r)),
-      focusedBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(8.r),
-        borderSide: BorderSide(color: isEnabled ? AppColors.primary : Colors.grey, width: 2.0),
-      ),
-      contentPadding: EdgeInsets.symmetric(vertical: 12.h, horizontal: 12.w),
-      suffixIcon: suffixIcon,
     );
   }
 }

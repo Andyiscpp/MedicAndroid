@@ -36,7 +36,15 @@ class NavigationItem {
 
 
 class HomePage extends StatefulWidget {
-  const HomePage({super.key});
+  // 1. 添加新的参数，用于接收来自 MainPage 的数据和回调
+  final Future<List<MedicinalData>> allUploadsFuture;
+  final Future<void> Function() onRefresh;
+
+  const HomePage({
+    super.key,
+    required this.allUploadsFuture,
+    required this.onRefresh,
+  });
 
   @override
   State<StatefulWidget> createState() {
@@ -45,8 +53,9 @@ class HomePage extends StatefulWidget {
 }
 
 class _HomePageState extends State<HomePage> {
-  final MedicinalDataService _medicinalDataService = MedicinalDataService();
-  late Future<List<MedicinalData>> _allUploadsFuture;
+  // 2. 移除 HomePage 自己的数据服务和 Future
+  // final MedicinalDataService _medicinalDataService = MedicinalDataService();
+  // late Future<List<MedicinalData>> _allUploadsFuture;
   late PageController _pageController;
   late final List<overview.Herb> _carouselHerbs;
   int _currentPage = 0;
@@ -58,7 +67,8 @@ class _HomePageState extends State<HomePage> {
   @override
   void initState() {
     super.initState();
-    _allUploadsFuture = _medicinalDataService.getAllUploadsData();
+    // 3. 不再需要在这里初始化数据
+    // _allUploadsFuture = _medicinalDataService.getAllUploadsData();
     _pageController = PageController(initialPage: 0, viewportFraction: 0.85);
     const overviewPage = overview.MedicinalMaterialsOverviewPage();
     _carouselHerbs = overviewPage.herbs.take(5).toList();
@@ -98,21 +108,26 @@ class _HomePageState extends State<HomePage> {
 
   @override
   Widget build(BuildContext context) {
-    // ✅ *** 核心修改点: 移除Scaffold和AppBar, 直接返回页面内容 ***
-    return Container(
-      color: AppColors.background, // 设置背景色
-      child: SingleChildScrollView(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 10.0),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _buildSectionWrapper(child: _buildHerbCarouselSection()),
-              _buildSectionWrapper(child: _buildRecentUploadsSection()),
-              _buildSectionWrapper(child: _buildMedicinalOverviewSection()),
-              _buildSectionWrapper(child: _buildMapSection()),
-              _buildSectionWrapper(child: _buildSharedUploadsSection()),
-            ],
+    // 4. 将主内容包裹在 RefreshIndicator 中
+    return RefreshIndicator(
+      onRefresh: widget.onRefresh, // 5. 使用从 MainPage 传递过来的刷新函数
+      child: Container(
+        color: AppColors.background,
+        child: SingleChildScrollView(
+          // 6. 确保 SingleChildScrollView 可以被下拉
+          physics: const AlwaysScrollableScrollPhysics(),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 10.0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _buildSectionWrapper(child: _buildHerbCarouselSection()),
+                _buildSectionWrapper(child: _buildRecentUploadsSection()),
+                _buildSectionWrapper(child: _buildMedicinalOverviewSection()),
+                _buildSectionWrapper(child: _buildMapSection()),
+                _buildSectionWrapper(child: _buildSharedUploadsSection()),
+              ],
+            ),
           ),
         ),
       ),
@@ -127,7 +142,6 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  // --- 各模块UI构建方法 (与之前相同，这里省略一部分以节省篇幅) ---
   Widget _buildSectionTitle(String title, IconData icon, {bool isSeeMore = false, VoidCallback? onSeeMoreTap}) {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -147,10 +161,6 @@ class _HomePageState extends State<HomePage> {
       ],
     );
   }
-
-  // Section Builders ( _buildHerbCarouselSection, _buildRecentUploadsSection, etc. )
-  // The implementations of these methods remain the same as the last version.
-  // I am including them here for completeness.
 
   Widget _buildHerbCarouselSection() {
     return Column(
@@ -202,8 +212,9 @@ class _HomePageState extends State<HomePage> {
       children: [
         _buildSectionTitle('最新上传记录', Icons.history_outlined),
         SizedBox(height: 16.h),
+        // 7. 将 FutureBuilder 的 future 指向 widget.allUploadsFuture
         FutureBuilder<List<MedicinalData>>(
-          future: _allUploadsFuture,
+          future: widget.allUploadsFuture,
           builder: (context, snapshot) {
             if (snapshot.connectionState == ConnectionState.waiting) {
               return const Center(child: CircularProgressIndicator(color: AppColors.primary));
@@ -211,7 +222,14 @@ class _HomePageState extends State<HomePage> {
             if (snapshot.hasError || !snapshot.hasData || snapshot.data!.isEmpty) {
               return const Card(child: ListTile(title: Text('暂无上传记录')));
             }
-            final recentUploads = snapshot.data!.take(3).toList();
+            // 根据 ID 降序排序，确保最新上传的在最前面
+            final sortedData = snapshot.data!;
+            sortedData.sort((a, b) {
+              final idA = a.locations.isNotEmpty ? a.locations.first.id ?? 0 : 0;
+              final idB = b.locations.isNotEmpty ? b.locations.first.id ?? 0 : 0;
+              return idB.compareTo(idA);
+            });
+            final recentUploads = sortedData.take(3).toList();
             return Card(
               elevation: 2, shadowColor: AppColors.primary.withOpacity(0.1),
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12.r)),
@@ -278,19 +296,19 @@ class _HomePageState extends State<HomePage> {
   }
 
   Widget _buildSharedUploadsSection() {
+    final MedicinalDataService _medicinalDataService = MedicinalDataService();
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         _buildSectionTitle('上传共享', Icons.people_alt_outlined, isSeeMore: true, onSeeMoreTap: () async {
           showToast('正在查询所有记录...');
-          final allData = await _medicinalDataService.getAllUploadsData();
           if (mounted) {
             Navigator.push(context, MaterialPageRoute(builder: (context) => AllUploadsPage(title: '所有上传记录')));
           }
         }),
         SizedBox(height: 16.h),
         FutureBuilder<List<MedicinalData>>(
-          future: _allUploadsFuture,
+          future: widget.allUploadsFuture,
           builder: (context, snapshot) {
             if (snapshot.connectionState == ConnectionState.waiting) {
               return SizedBox(height: 180.h, child: const Center(child: CircularProgressIndicator()));
@@ -372,14 +390,13 @@ class _HomePageState extends State<HomePage> {
   }
 
   Widget _buildSeeAllCard() {
-    //... remains same
+    final MedicinalDataService _medicinalDataService = MedicinalDataService();
     return Container(
       width: 150.w,
       margin: EdgeInsets.only(right: 12.w),
       child: InkWell(
         onTap: () async {
           showToast('正在查询所有记录...');
-          final allData = await _medicinalDataService.getAllUploadsData();
           if (mounted) {
             Navigator.push(context, MaterialPageRoute(builder: (context) => AllUploadsPage(title: '所有上传记录')));
           }

@@ -4,6 +4,7 @@ import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:oktoast/oktoast.dart';
 
 import 'package:demo_conut/pages/home_page.dart';
+import 'package:demo_conut/pages/main_page.dart'; // 1. 导入 MainPage
 import 'package:demo_conut/pages/register_page.dart';
 import '../services/user_service.dart';
 
@@ -75,8 +76,10 @@ class _LoginPageState extends State<LoginPage> with SingleTickerProviderStateMix
     if (mounted) {
       if (result['success']) {
         showToast(result['message']);
+        // 2. ✅ *** 核心修复点 ***
+        // 将导航目标从 HomePage 更改为 MainPage
         Navigator.of(context).pushReplacement(
-          MaterialPageRoute(builder: (context) => const HomePage()),
+          MaterialPageRoute(builder: (context) => const MainPage()),
         );
       } else {
         showToast(result['message']); // 显示后端返回的错误信息
